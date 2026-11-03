@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="color-scheme" content="dark" />
+  <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+  <title>Revisión de audio — Mary Cooper</title>
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <h1>Revisión de audio</h1>
+      <p>Pista completa (~12,6 min). Rojo = tomas a cortar · Amarillo = silencios. Elige <strong>Borrar</strong> o <strong>Dejar</strong> en cada parte.</p>
+    </header>
+
+    <section class="player-card" aria-label="Reproductor">
+      <div class="controls">
+        <button type="button" class="btn btn-primary btn-play" id="btnPlay" aria-label="Reproducir o pausar">▶</button>
+        <button type="button" class="btn btn-ghost" id="btnStop" title="Detener">⏹</button>
+        <span class="time" id="timeLabel">0:00 / 0:00</span>
+      </div>
+      <div id="waveform"></div>
+      <div class="legend">
+        <span><i class="swatch retake"></i>Retoma (R)</span>
+        <span><i class="swatch silence"></i>Silencio (S)</span>
+        <span><i class="swatch keep"></i>Marcado Dejar</span>
+      </div>
+    </section>
+
+    <div class="toggle-row">
+      <input type="checkbox" id="previewAll" />
+      <label for="previewAll">Escuchar todo como quedaría (salta lo marcado Borrar)</label>
+    </div>
+
+    <div id="status" class="loading">Cargando audio y propuestas…</div>
+
+    <div class="list-head">
+      <h2>Propuestas</h2>
+      <span id="listCount"></span>
+    </div>
+    <div id="list"></div>
+  </div>
+
+  <div class="bar" role="contentinfo">
+    <div class="bar-inner">
+      <div class="counts" id="counts">—</div>
+      <button type="button" class="btn btn-primary" id="btnCopy">Copiar decisiones</button>
+      <button type="button" class="btn" id="btnDownload">Descargar decisiones.json</button>
+    </div>
+  </div>
+  <div class="toast" id="toast" role="status"></div>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
