@@ -1,0 +1,95 @@
+{
+  "updatedAt": "2026-11-03T21:30:00-05:00",
+  "style": {
+    "title": "Estilo de edición (ZEPFILMS → canal nuevo)",
+    "cutsPerMin": "20–23 cortes/min",
+    "shotLength": "~2.5–3 s por plano (B-roll de la serie <3 s)",
+    "lufs": "≈ −18 LUFS (master con música)",
+    "minResolution": "mín. 720p (ideal 1080p)",
+    "sfx": "Whoosh en ~30–50 % de cortes; click/pop en textos; glitch en intro/outro; SFX bajo la VO",
+    "notes": [
+      "Cortes duros + narración + B-roll de la serie",
+      "Bed musical continuo; sin silencios residuales en el master",
+      "Tipografía sans blanca; efectos de sonido estilo ZEPFILMS"
+    ]
+  },
+  "projects": [
+    {
+      "id": "mary-cooper",
+      "slug": "mary-cooper",
+      "title": "Mary Cooper (The Big Bang Theory / Young Sheldon)",
+      "subtitle": "Nuevo canal (no cine)",
+      "status": "esperando_aprobacion",
+      "createdAt": "2026-11-03",
+      "review": {
+        "path": "revision/mary-cooper/",
+        "proposalsPath": "revision/mary-cooper/data/proposals.json",
+        "counts": {
+          "total": 82,
+          "silence": 49,
+          "retake": 33
+        }
+      },
+      "media": {
+        "cleanedAudio": null,
+        "videoPreview": null
+      },
+      "packaging": {
+        "thumbnail": null,
+        "title": null,
+        "description": null,
+        "tags": null
+      },
+      "publish": {
+        "visibility": null,
+        "scheduledAt": null,
+        "youtubeUrl": null
+      },
+      "pipeline": [
+        {
+          "id": "upload",
+          "title": "Audio y guion subidos",
+          "status": "aprobado",
+          "approvable": false,
+          "detail": "Audio + guion recibidos y cargados en el panel de revisión."
+        },
+        {
+          "id": "cuts",
+          "title": "Revisión de cortes",
+          "status": "esperando_aprobacion",
+          "approvable": true,
+          "link": "revision/mary-cooper/",
+          "detail": "Revisa retomas y silencios. Cuando termines, aprueba o pide cambios."
+        },
+        {
+          "id": "clean_audio",
+          "title": "Audio limpio — aprobar",
+          "status": "pendiente",
+          "approvable": true,
+          "detail": "Se genera tras tu aprobación de cortes. Escucha el audio limpio aquí cuando esté listo."
+        },
+        {
+          "id": "edit",
+          "title": "Edición de video",
+          "status": "pendiente",
+          "approvable": true,
+          "detail": "B-roll de la serie (<3 s), textos, música y efectos de sonido estilo ZEPFILMS. Vista previa cuando esté lista."
+        },
+        {
+          "id": "packaging",
+          "title": "Miniatura, título, descripción, etiquetas",
+          "status": "pendiente",
+          "approvable": true,
+          "detail": "Packaging listo para YouTube."
+        },
+        {
+          "id": "publish",
+          "title": "Publicar en YouTube",
+          "status": "pendiente",
+          "approvable": true,
+          "detail": "Subida privada o programada."
+        }
+      ]
+    }
+  ]
+}

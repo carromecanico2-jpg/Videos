@@ -821,9 +821,9 @@ async function boot() {
 
   const wsOpts = {
     container: '#waveform',
-    waveColor: '#3a4658',
-    progressColor: '#5b9dff',
-    cursorColor: '#ffffff',
+    waveColor: '#94a3b8',
+    progressColor: '#3b82f6',
+    cursorColor: '#1a1d23',
     cursorWidth: 2,
     barWidth: 2,
     barGap: 1,

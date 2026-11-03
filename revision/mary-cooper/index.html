@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="color-scheme" content="light" />
+  <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+  <title>Revisión de audio — Mary Cooper</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/styles.css?v=6" />
+</head>
+<body>
+  <div class="wrap">
+    <nav class="crumb" aria-label="Navegación">
+      <a href="../../">← Panel de edición</a>
+      <span>·</span>
+      <span>Mary Cooper</span>
+      <span>·</span>
+      <span>Revisión de cortes</span>
+    </nav>
+    <header class="top">
+      <div>
+        <h1>Revisión de audio</h1>
+        <p>Elige <strong>Borrar</strong> o <strong>Dejar</strong>. Pendiente aplica la propuesta al previsualizar/exportar (retoma=toma elegida; silencio=acortar).</p>
+      </div>
+      <div class="legend">
+        <span><i class="swatch retake"></i>R</span>
+        <span><i class="swatch silence"></i>S</span>
+        <span><i class="swatch keep"></i>Dejar</span>
+        <span><i class="swatch pending"></i>Pendiente</span>
+      </div>
+    </header>
+
+    <section class="player-card" aria-label="Reproductor">
+      <div class="controls">
+        <button type="button" class="btn btn-primary btn-play" id="btnPlay" aria-label="Reproducir o pausar" disabled>
+          <span class="btn-label">▶</span>
+          <span class="btn-spin" hidden aria-hidden="true"></span>
+        </button>
+        <button type="button" class="btn btn-ghost" id="btnStop" title="Detener" disabled>⏹</button>
+        <span class="time" id="timeLabel">0:00 / 0:00</span>
+        <label class="preview-all">
+          <input type="checkbox" id="previewAll" disabled />
+          Escuchar todo como quedaría
+        </label>
+      </div>
+      <div id="waveform"></div>
+      <div id="audioLoader" class="audio-loader" role="status" aria-live="polite">
+        <div class="spinner" aria-hidden="true"></div>
+        <div class="loader-text" id="loaderText">Cargando audio…</div>
+        <div class="loader-bar"><div class="loader-bar-fill" id="loaderBar" style="width:0%"></div></div>
+      </div>
+    </section>
+
+    <div id="status" class="loading">Cargando propuestas…</div>
+
+    <div class="toolbar">
+      <div class="filters" role="tablist" aria-label="Filtros">
+        <button type="button" class="chip active" data-filter="all">Todos</button>
+        <button type="button" class="chip" data-filter="retake">Retomas</button>
+        <button type="button" class="chip" data-filter="silence">Silencios</button>
+        <button type="button" class="chip" data-filter="pendiente">Pendientes</button>
+      </div>
+      <div class="bulk">
+        <button type="button" class="btn btn-sm" id="btnBulkSilence">Borrar todos los silencios</button>
+        <button type="button" class="btn btn-sm" id="btnBulkDejar">Dejar todos</button>
+      </div>
+      <span id="listCount" class="list-count"></span>
+    </div>
+
+    <div id="list" class="list"></div>
+  </div>
+
+  <div class="bar" role="contentinfo">
+    <div class="bar-inner">
+      <div class="counts" id="counts">—</div>
+      <button type="button" class="btn btn-primary btn-sm" id="btnCopy">Copiar decisiones</button>
+      <button type="button" class="btn btn-sm" id="btnDownload">Descargar decisiones.json</button>
+    </div>
+  </div>
+  <div class="toast" id="toast" role="status"></div>
+
+  <script type="module" src="js/app.js?v=6"></script>
+</body>
+</html>
