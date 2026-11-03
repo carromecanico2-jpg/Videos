@@ -1,0 +1,62 @@
+{
+  "title": "Guía de estilo de edición",
+  "subtitle": "Reglas ZEPFILMS aplicadas al canal nuevo",
+  "sections": [
+    {
+      "id": "tech",
+      "title": "Formato y técnicos",
+      "items": [
+        "Resolución mínima 720p (ideal 1080p), 16:9",
+        "Loudness master ≈ −18 LUFS (Shorts un poco más hot, ~−17)",
+        "FPS 24–30"
+      ]
+    },
+    {
+      "id": "pace",
+      "title": "Ritmo de corte",
+      "items": [
+        "≈ 20–23 cortes por minuto",
+        "Planos / B-roll de ~2.5–3 s (serie <3 s)",
+        "Cortes duros; casi sin wipes"
+      ]
+    },
+    {
+      "id": "audio",
+      "title": "Audio",
+      "items": [
+        "Narración real del host; solo arreglar lo necesario",
+        "Bed musical continuo bajo la VO",
+        "Sin silencios residuales en el master"
+      ]
+    },
+    {
+      "id": "sfx",
+      "title": "Efectos de sonido (estilo ZEPFILMS)",
+      "items": [
+        "Whoosh en ~30–50 % de los hard cuts",
+        "Click/pop en cada texto importante",
+        "Glitch en intro tipográfico y outro “SIGUE VIENDO”",
+        "SFX bajo la VO (whoosh ≈ −8 a −12 dB bajo pico de VO)"
+      ]
+    },
+    {
+      "id": "visual",
+      "title": "Visual",
+      "items": [
+        "Tipografía sans blanca limpia",
+        "B-roll de la serie/película, BTS, archivo — no stock genérico",
+        "Outro: plano B/N o desaturado + tipografía con aberración"
+      ]
+    },
+    {
+      "id": "howto",
+      "title": "Cómo empezar un video nuevo",
+      "items": [
+        "En el chat, manda el audio (enlace de Drive). El guion es opcional y ayuda a detectar retomas.",
+        "Se carga el proyecto y queda lista la revisión de cortes.",
+        "Aprueba o pide cambios con los botones (se copia un mensaje para pegar en el chat).",
+        "Luego: audio limpio → edición → packaging clickbait → YouTube."
+      ]
+    }
+  ]
+}
