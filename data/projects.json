@@ -48,10 +48,10 @@
       "pipeline": [
         {
           "id": "upload",
-          "title": "Audio y guion subidos",
+          "title": "Audio subido",
           "status": "aprobado",
           "approvable": false,
-          "detail": "Audio + guion recibidos y cargados en el panel de revisión."
+          "detail": "Audio recibido y cargado en el panel de revisión. Guion: pendiente (opcional, ayuda a detectar retomas)."
         },
         {
           "id": "cuts",

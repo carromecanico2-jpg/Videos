@@ -272,7 +272,7 @@ function renderProjects(data) {
 async function boot() {
   let data;
   try {
-    const res = await fetch('data/projects.json?v=1');
+    const res = await fetch('data/projects.json?v=2');
     if (!res.ok) throw new Error('HTTP ' + res.status);
     data = await res.json();
   } catch (e) {
