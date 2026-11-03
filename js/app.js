@@ -1,7 +1,7 @@
 import WaveSurfer from './wavesurfer.esm.js';
 import RegionsPlugin from './regions.esm.js';
 
-const STORAGE_KEY = 'mary-cooper-audio-review-v1';
+const STORAGE_KEY = 'mary-cooper-audio-review-v2';
 const PAD = 2.0;
 
 const $ = (id) => document.getElementById(id);
@@ -13,12 +13,14 @@ let DATA = null;
 let wavesurfer = null;
 let regionPlugin = null;
 let regionById = new Map();
-let decisions = {}; // id -> 'borrar' | 'dejar'
+let decisions = {}; // id -> 'borrar' | 'dejar' | 'pendiente'
 let keepTake = {}; // groupId -> takeId
-let playMode = null; // null | 'segment' | 'preview'
+let playMode = null;
 let stopAt = null;
 let previewQueue = [];
 let previewActive = false;
+let filterMode = 'all';
+let activeId = null;
 
 function fmt(t) {
   if (!Number.isFinite(t) || t < 0) t = 0;
@@ -34,8 +36,12 @@ function toast(msg) {
   toast._t = setTimeout(() => toastEl.classList.remove('show'), 1800);
 }
 
-function defaultDecision(p) {
-  return p.default_decision === 'reject' ? 'dejar' : 'borrar';
+function escapeHtml(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
 }
 
 function loadState() {
@@ -49,9 +55,18 @@ function loadState() {
 }
 
 function saveState() {
-  const payload = { version: 1, decisions, keepTake, savedAt: new Date().toISOString() };
+  const payload = { version: 2, decisions, keepTake, savedAt: new Date().toISOString() };
   localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
   updateCounts();
+}
+
+function recommendedTakeId(g) {
+  if (!g) return null;
+  if (g.recommended_take_id) return g.recommended_take_id;
+  const rec = (g.takes || []).find((t) => t.recommended);
+  if (rec) return rec.id;
+  const last = (g.takes || []).find((t) => t.kind === 'last') || (g.takes || [])[(g.takes || []).length - 1];
+  return last ? last.id : null;
 }
 
 function initDefaults() {
@@ -59,14 +74,14 @@ function initDefaults() {
   decisions = {};
   keepTake = {};
   for (const p of DATA.proposals) {
-    decisions[p.id] = saved?.decisions?.[p.id] || defaultDecision(p);
+    const prev = saved?.decisions?.[p.id];
+    decisions[p.id] = prev === 'borrar' || prev === 'dejar' || prev === 'pendiente' ? prev : 'pendiente';
   }
   for (const [gid, g] of Object.entries(DATA.groups || {})) {
-    if (saved?.keepTake?.[gid]) {
+    if (saved?.keepTake?.[gid] && (g.takes || []).some((t) => t.id === saved.keepTake[gid])) {
       keepTake[gid] = saved.keepTake[gid];
     } else {
-      const last = g.takes.find((t) => t.kind === 'last') || g.takes[g.takes.length - 1];
-      keepTake[gid] = last.id;
+      keepTake[gid] = recommendedTakeId(g);
     }
   }
 }
@@ -76,7 +91,6 @@ function groupForProposal(p) {
   return DATA.groups[p.group_id] || null;
 }
 
-/** Ranges to skip when applying current decisions */
 function computeCuts() {
   const cuts = [];
   for (const p of DATA.proposals) {
@@ -101,11 +115,8 @@ function computeCuts() {
   cuts.sort((a, b) => a[0] - b[0]);
   const merged = [];
   for (const c of cuts) {
-    if (!merged.length || c[0] > merged[merged.length - 1][1] + 0.001) {
-      merged.push([...c]);
-    } else {
-      merged[merged.length - 1][1] = Math.max(merged[merged.length - 1][1], c[1]);
-    }
+    if (!merged.length || c[0] > merged[merged.length - 1][1] + 0.001) merged.push([...c]);
+    else merged[merged.length - 1][1] = Math.max(merged[merged.length - 1][1], c[1]);
   }
   return merged;
 }
@@ -132,15 +143,18 @@ function cutForProposal(p) {
   const take = g.takes.find((t) => t.id === keepTake[g.id]) || g.takes[g.takes.length - 1];
   const spanStart = Math.min(...g.takes.map((t) => t.start));
   const spanEnd = Math.max(...g.takes.map((t) => t.end));
-  // For "así queda" preview around this item: skip non-kept parts in the group span
   return { spanStart, spanEnd, keepStart: take.start, keepEnd: take.end };
 }
 
 function regionColor(p) {
-  const leave = decisions[p.id] === 'dejar';
-  if (leave) return 'rgba(62, 207, 142, 0.28)';
-  if (p.type === 'retake') return 'rgba(226, 85, 85, 0.42)';
-  return 'rgba(224, 184, 58, 0.40)';
+  const d = decisions[p.id];
+  if (d === 'dejar') return 'rgba(62, 207, 142, 0.32)';
+  if (d === 'pendiente') {
+    if (p.type === 'retake') return 'rgba(226, 85, 85, 0.18)';
+    return 'rgba(224, 184, 58, 0.18)';
+  }
+  if (p.type === 'retake') return 'rgba(226, 85, 85, 0.45)';
+  return 'rgba(224, 184, 58, 0.42)';
 }
 
 function regionBounds(p) {
@@ -150,7 +164,6 @@ function regionBounds(p) {
       const take = g.takes.find((t) => t.id === keepTake[g.id]) || g.takes[g.takes.length - 1];
       const spanStart = Math.min(...g.takes.map((t) => t.start));
       const spanEnd = Math.max(...g.takes.map((t) => t.end));
-      // Show the parts that will be removed as the region (prefer earlier block)
       if (take.kind === 'last' || take.start >= p.start) {
         return { start: spanStart, end: take.start > spanStart ? take.start : p.end };
       }
@@ -190,12 +203,23 @@ function sortedProposals() {
   return [...DATA.proposals].sort((a, b) => a.start - b.start || a.id.localeCompare(b.id));
 }
 
+function filteredProposals() {
+  return sortedProposals().filter((p) => {
+    if (filterMode === 'all') return true;
+    if (filterMode === 'retake') return p.type === 'retake';
+    if (filterMode === 'silence') return p.type === 'silence';
+    if (filterMode === 'pendiente') return decisions[p.id] === 'pendiente';
+    return true;
+  });
+}
+
 function scrollToItem(id) {
+  activeId = id;
   const el = document.querySelector(`[data-id="${id}"]`);
   if (!el) return;
-  document.querySelectorAll('.item.active').forEach((n) => n.classList.remove('active'));
+  document.querySelectorAll('.row.active').forEach((n) => n.classList.remove('active'));
   el.classList.add('active');
-  el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
 function stopSpecialPlayback() {
@@ -203,7 +227,8 @@ function stopSpecialPlayback() {
   stopAt = null;
   previewQueue = [];
   previewActive = false;
-  $('previewAll').checked = false;
+  const pa = $('previewAll');
+  if (pa) pa.checked = false;
 }
 
 async function hardStop() {
@@ -237,6 +262,10 @@ function playEscuchar(p) {
   scrollToItem(p.id);
 }
 
+function playTake(t) {
+  playRange(Math.max(0, t.start - 0.15), Math.min(wavesurfer.getDuration(), t.end + 0.15));
+}
+
 function playAsiQueda(p) {
   const dur = wavesurfer.getDuration();
   const ctxA = Math.max(0, p.start - PAD);
@@ -247,7 +276,7 @@ function playAsiQueda(p) {
     const keep = (p.meta && p.meta.keep_duration) || 0;
     const cutStart = p.start + keep;
     const cutEnd = p.end;
-    if (decisions[p.id] === 'dejar') {
+    if (decisions[p.id] === 'dejar' || decisions[p.id] === 'pendiente') {
       segs.push([ctxA, ctxB]);
     } else {
       if (cutStart > ctxA) segs.push([ctxA, cutStart]);
@@ -260,25 +289,15 @@ function playAsiQueda(p) {
     const spanStart = g ? Math.min(...g.takes.map((t) => t.start)) : p.start;
     const spanEnd = g ? Math.max(...g.takes.map((t) => t.end)) : p.end;
     ctxB = Math.min(dur, spanEnd + PAD);
-    if (decisions[p.id] === 'dejar' || !info) {
+    if (decisions[p.id] !== 'borrar' || !info) {
       segs.push([Math.max(0, spanStart - PAD), ctxB]);
     } else {
       const pre = Math.max(0, spanStart - PAD);
-      if (info.keepStart > pre) {
-        // play pre-context up to cut, then keep take, then after
-        if (info.keepStart > pre && spanStart > pre) {
-          // from context to start of deleted? Actually: play [pre, keepStart) skips deleted before keep
-          // if keep is last: [pre, spanStart) then jump — wait spanStart == first take start.
-          // Better: play [pre, cut1start) + [keepStart, keepEnd] + [cut2end, ctxB]
-        }
-      }
       const cuts = [];
       if (info.keepStart > spanStart + 0.01) cuts.push([spanStart, info.keepStart]);
       if (info.keepEnd < spanEnd - 0.01) cuts.push([info.keepEnd, spanEnd]);
       const windowKeep = complementKeep(cuts, dur).filter(([a, b]) => b > pre && a < ctxB);
-      for (const [a, b] of windowKeep) {
-        segs.push([Math.max(a, pre), Math.min(b, ctxB)]);
-      }
+      for (const [a, b] of windowKeep) segs.push([Math.max(a, pre), Math.min(b, ctxB)]);
       if (!segs.length) segs.push([info.keepStart, info.keepEnd]);
     }
   }
@@ -338,53 +357,100 @@ function onTimeUpdate(t) {
   }
 }
 
+function setDecision(id, value) {
+  if (decisions[id] === value) decisions[id] = 'pendiente';
+  else decisions[id] = value;
+  saveState();
+  rebuildRegions();
+  renderList();
+  scrollToItem(id);
+}
+
+function updateCounts() {
+  let borrar = 0, dejar = 0, pendiente = 0;
+  for (const p of DATA.proposals) {
+    const d = decisions[p.id];
+    if (d === 'borrar') borrar++;
+    else if (d === 'dejar') dejar++;
+    else pendiente++;
+  }
+  const cutSec = computeCuts().reduce((acc, [a, b]) => acc + (b - a), 0);
+  $('counts').innerHTML =
+    `<strong>${borrar}</strong> borrar · <strong>${dejar}</strong> dejar · <strong>${pendiente}</strong> pendiente · ~${fmt(cutSec)} a quitar`;
+}
+
+function shortLabel(p) {
+  const text = (p.text || '').replace(/\s+/g, ' ').trim();
+  const reason = (p.reason || '').replace(/\s+/g, ' ').trim();
+  if (p.type === 'silence') return reason || text || '[silencio]';
+  return text || reason || p.label;
+}
+
 function renderList() {
-  const items = sortedProposals();
-  $('listCount').textContent = `${items.length} partes`;
+  const items = filteredProposals();
+  $('listCount').textContent = `${items.length} / ${DATA.proposals.length}`;
   listEl.innerHTML = '';
+
   for (const p of items) {
-    const decision = decisions[p.id];
+    const decision = decisions[p.id] || 'pendiente';
     const g = groupForProposal(p);
     const el = document.createElement('article');
-    el.className = `item ${decision === 'dejar' ? 'dejar' : ''}`;
+    el.className = `row ${decision}`;
+    if (activeId === p.id) el.classList.add('active');
     el.dataset.id = p.id;
 
-    const timeLabel = `${fmt(p.start)} – ${fmt(p.end)}`;
     let takesHtml = '';
     if (g && g.takes && g.takes.length) {
-      takesHtml = `<div class="takes"><h3>¿Cuál toma conservar? (por defecto la última)</h3>${g.takes
-        .map((t, i) => {
+      const recReason = g.recommended_reason || '';
+      takesHtml = `<div class="takes">${g.takes
+        .map((t) => {
           const checked = keepTake[g.id] === t.id ? 'checked' : '';
           const sel = keepTake[g.id] === t.id ? 'selected' : '';
-          const label = t.kind === 'last' ? `Toma ${i + 1} (última)` : `Toma ${i + 1}`;
-          return `<label class="take-opt ${sel}">
+          const rec = t.recommended ? `<span class="rec-tag">Recomendada</span>` : '';
+          const reason = t.recommended
+            ? escapeHtml(t.reason_es || recReason || '')
+            : escapeHtml(t.reason_es || '');
+          const score = typeof t.score === 'number' ? ` · ${Math.round(t.score)}` : '';
+          return `<label class="take-chip ${sel}">
             <input type="radio" name="take-${g.id}" value="${t.id}" ${checked} data-gid="${g.id}" />
-            <span><div class="t-meta">${label} · ${fmt(t.start)}–${fmt(t.end)}</div>
-            <div class="t-text">${escapeHtml(t.text || '')}</div></span>
+            ${rec}
+            <span class="t-meta">${escapeHtml(t.take_label || t.id)} · ${fmt(t.start)}–${fmt(t.end)}${score}</span>
+            <span class="t-reason">${reason}</span>
+            <button type="button" class="btn btn-icon" data-act="take-listen" data-take="${t.id}" title="Escuchar toma">▶</button>
           </label>`;
         })
         .join('')}</div>`;
     }
 
     el.innerHTML = `
-      <div class="item-top">
-        <span class="badge ${p.type}">${p.label}</span>
-        <span class="badge time">${timeLabel}</span>
+      <span class="badge ${p.type}">${escapeHtml(p.label)}</span>
+      <span class="badge-time">${fmt(p.start)}–${fmt(p.end)}</span>
+      <div class="row-main">
+        <div class="row-text">${escapeHtml(shortLabel(p))}</div>
+        ${p.type === 'retake' && g?.recommended_reason ? `<div class="row-sub">${escapeHtml(g.recommended_reason)}</div>` : (p.reason && p.type === 'silence' ? '' : '')}
       </div>
-      <div class="item-text">${escapeHtml(p.text || '')}</div>
-      <div class="item-reason">${escapeHtml(p.reason || '')}</div>
+      <div class="row-actions">
+        <span class="state-dot" title="${decision}"></span>
+        <button type="button" class="btn btn-icon" data-act="listen" title="Escuchar">▶</button>
+        <button type="button" class="btn btn-icon" data-act="preview" title="Así queda">✓▶</button>
+        <div class="seg">
+          <button type="button" class="btn btn-borrar ${decision === 'borrar' ? 'selected' : ''}" data-act="borrar">Borrar</button>
+          <button type="button" class="btn btn-dejar ${decision === 'dejar' ? 'selected' : ''}" data-act="dejar">Dejar</button>
+        </div>
+      </div>
       ${takesHtml}
-      <div class="actions">
-        <button type="button" class="btn" data-act="listen">▶ Escuchar</button>
-        <button type="button" class="btn" data-act="preview">▶ Así queda</button>
-      </div>
-      <div class="decide">
-        <button type="button" class="btn btn-borrar ${decision === 'borrar' ? 'selected' : ''}" data-act="borrar">Borrar</button>
-        <button type="button" class="btn btn-dejar ${decision === 'dejar' ? 'selected' : ''}" data-act="dejar">Dejar</button>
-      </div>
     `;
 
     el.addEventListener('click', (ev) => {
+      const takeBtn = ev.target.closest('[data-act="take-listen"]');
+      if (takeBtn) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        const tid = takeBtn.dataset.take;
+        const take = g?.takes?.find((t) => t.id === tid);
+        if (take) playTake(take);
+        return;
+      }
       const btn = ev.target.closest('[data-act]');
       if (btn) {
         const act = btn.dataset.act;
@@ -400,7 +466,14 @@ function renderList() {
         saveState();
         rebuildRegions();
         renderList();
+        scrollToItem(p.id);
         return;
+      }
+      // row click -> seek
+      scrollToItem(p.id);
+      if (wavesurfer) {
+        wavesurfer.setTime(Math.max(0, p.start));
+        $('timeLabel').textContent = `${fmt(p.start)} / ${fmt(wavesurfer.getDuration() || DATA.duration)}`;
       }
     });
 
@@ -408,54 +481,29 @@ function renderList() {
   }
 }
 
-function escapeHtml(s) {
-  return String(s)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
-
-function setDecision(id, value) {
-  decisions[id] = value;
-  saveState();
-  rebuildRegions();
-  // Update just this card classes/buttons without full re-render if possible — full is fine
-  renderList();
-  scrollToItem(id);
-}
-
-function updateCounts() {
-  let borrar = 0;
-  let dejar = 0;
-  for (const p of DATA.proposals) {
-    if (decisions[p.id] === 'borrar') borrar++;
-    else dejar++;
-  }
-  const cutSec = computeCuts().reduce((acc, [a, b]) => acc + (b - a), 0);
-  $('counts').innerHTML = `<strong>${borrar}</strong> borrar · <strong>${dejar}</strong> dejar · ~${fmt(cutSec)} a quitar`;
-}
-
 function buildCopyText() {
-  const dejarIds = [];
-  const takeNotes = [];
+  const lines = [];
+  const borrar = [], dejar = [], pendiente = [], takeNotes = [];
   for (const p of sortedProposals()) {
-    if (decisions[p.id] === 'dejar') dejarIds.push(p.label);
-    if (p.type === 'retake' && decisions[p.id] === 'borrar') {
+    const d = decisions[p.id];
+    if (d === 'borrar') borrar.push(p.label);
+    else if (d === 'dejar') dejar.push(p.label);
+    else pendiente.push(p.label);
+    if (p.type === 'retake') {
       const g = groupForProposal(p);
       if (!g) continue;
-      const idx = g.takes.findIndex((t) => t.id === keepTake[g.id]);
-      const last = g.takes[g.takes.length - 1];
-      if (keepTake[g.id] !== last.id) {
-        takeNotes.push(`${p.label} quedarse con toma ${idx + 1}`);
+      const take = g.takes.find((t) => t.id === keepTake[g.id]);
+      const rec = recommendedTakeId(g);
+      if (take && take.id !== rec) {
+        takeNotes.push(`${p.label} quedarse con ${take.take_label || take.id}`);
       }
     }
   }
-  const parts = [];
-  if (dejarIds.length) parts.push('Dejar: ' + dejarIds.join(', '));
-  else parts.push('Dejar: (ninguno)');
-  if (takeNotes.length) parts.push(takeNotes.join(' | '));
-  return parts.join(' | ');
+  lines.push('Borrar: ' + (borrar.join(', ') || '(ninguno)'));
+  lines.push('Dejar: ' + (dejar.join(', ') || '(ninguno)'));
+  lines.push('Pendiente: ' + (pendiente.join(', ') || '(ninguno)'));
+  if (takeNotes.length) lines.push(takeNotes.join(' | '));
+  return lines.join(' | ');
 }
 
 function downloadDecisions() {
@@ -470,6 +518,7 @@ function downloadDecisions() {
       type: p.type,
       decision: decisions[p.id],
       keep_take: p.group_id ? keepTake[p.group_id] : null,
+      recommended_take: p.group_id ? recommendedTakeId(DATA.groups[p.group_id]) : null,
       start: p.start,
       end: p.end,
     })),
@@ -499,6 +548,20 @@ async function copyDecisions() {
   }
 }
 
+function bulkSet(predicate, value) {
+  let n = 0;
+  for (const p of DATA.proposals) {
+    if (predicate(p)) {
+      decisions[p.id] = value;
+      n++;
+    }
+  }
+  saveState();
+  rebuildRegions();
+  renderList();
+  toast(`${n} marcados como ${value}`);
+}
+
 async function boot() {
   try {
     const res = await fetch('data/proposals.json');
@@ -522,7 +585,7 @@ async function boot() {
     barWidth: 2,
     barGap: 1,
     barRadius: 2,
-    height: 128,
+    height: 64,
     normalize: true,
     url: DATA.audio || 'audio.mp3',
     plugins: [regionPlugin],
@@ -573,7 +636,6 @@ async function boot() {
         $('previewAll').checked = false;
       }
     } else {
-      // resume normal play from cursor
       playMode = null;
       stopAt = null;
       previewActive = false;
@@ -595,7 +657,22 @@ async function boot() {
 
   $('btnCopy').addEventListener('click', copyDecisions);
   $('btnDownload').addEventListener('click', downloadDecisions);
+
+  document.querySelectorAll('.filters .chip').forEach((chip) => {
+    chip.addEventListener('click', () => {
+      document.querySelectorAll('.filters .chip').forEach((c) => c.classList.remove('active'));
+      chip.classList.add('active');
+      filterMode = chip.dataset.filter;
+      renderList();
+    });
+  });
+
+  $('btnBulkSilence').addEventListener('click', () => {
+    bulkSet((p) => p.type === 'silence', 'borrar');
+  });
+  $('btnBulkDejar').addEventListener('click', () => {
+    bulkSet(() => true, 'dejar');
+  });
 }
 
 boot();
-

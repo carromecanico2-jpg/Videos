@@ -6,13 +6,21 @@
   <meta name="color-scheme" content="dark" />
   <link rel="icon" href="favicon.svg" type="image/svg+xml" />
   <title>Revisión de audio — Mary Cooper</title>
-  <link rel="stylesheet" href="css/styles.css" />
+  <link rel="stylesheet" href="css/styles.css?v=2" />
 </head>
 <body>
   <div class="wrap">
-    <header>
-      <h1>Revisión de audio</h1>
-      <p>Pista completa (~12,6 min). Rojo = tomas a cortar · Amarillo = silencios. Elige <strong>Borrar</strong> o <strong>Dejar</strong> en cada parte.</p>
+    <header class="top">
+      <div>
+        <h1>Revisión de audio</h1>
+        <p>Elige <strong>Borrar</strong> o <strong>Dejar</strong> en cada parte. Empiezan en pendiente.</p>
+      </div>
+      <div class="legend">
+        <span><i class="swatch retake"></i>R</span>
+        <span><i class="swatch silence"></i>S</span>
+        <span><i class="swatch keep"></i>Dejar</span>
+        <span><i class="swatch pending"></i>Pendiente</span>
+      </div>
     </header>
 
     <section class="player-card" aria-label="Reproductor">
@@ -20,38 +28,42 @@
         <button type="button" class="btn btn-primary btn-play" id="btnPlay" aria-label="Reproducir o pausar">▶</button>
         <button type="button" class="btn btn-ghost" id="btnStop" title="Detener">⏹</button>
         <span class="time" id="timeLabel">0:00 / 0:00</span>
+        <label class="preview-all">
+          <input type="checkbox" id="previewAll" />
+          Escuchar todo como quedaría
+        </label>
       </div>
       <div id="waveform"></div>
-      <div class="legend">
-        <span><i class="swatch retake"></i>Retoma (R)</span>
-        <span><i class="swatch silence"></i>Silencio (S)</span>
-        <span><i class="swatch keep"></i>Marcado Dejar</span>
-      </div>
     </section>
-
-    <div class="toggle-row">
-      <input type="checkbox" id="previewAll" />
-      <label for="previewAll">Escuchar todo como quedaría (salta lo marcado Borrar)</label>
-    </div>
 
     <div id="status" class="loading">Cargando audio y propuestas…</div>
 
-    <div class="list-head">
-      <h2>Propuestas</h2>
-      <span id="listCount"></span>
+    <div class="toolbar">
+      <div class="filters" role="tablist" aria-label="Filtros">
+        <button type="button" class="chip active" data-filter="all">Todos</button>
+        <button type="button" class="chip" data-filter="retake">Retomas</button>
+        <button type="button" class="chip" data-filter="silence">Silencios</button>
+        <button type="button" class="chip" data-filter="pendiente">Pendientes</button>
+      </div>
+      <div class="bulk">
+        <button type="button" class="btn btn-sm" id="btnBulkSilence">Borrar todos los silencios</button>
+        <button type="button" class="btn btn-sm" id="btnBulkDejar">Dejar todos</button>
+      </div>
+      <span id="listCount" class="list-count"></span>
     </div>
-    <div id="list"></div>
+
+    <div id="list" class="list"></div>
   </div>
 
   <div class="bar" role="contentinfo">
     <div class="bar-inner">
       <div class="counts" id="counts">—</div>
-      <button type="button" class="btn btn-primary" id="btnCopy">Copiar decisiones</button>
-      <button type="button" class="btn" id="btnDownload">Descargar decisiones.json</button>
+      <button type="button" class="btn btn-primary btn-sm" id="btnCopy">Copiar decisiones</button>
+      <button type="button" class="btn btn-sm" id="btnDownload">Descargar decisiones.json</button>
     </div>
   </div>
   <div class="toast" id="toast" role="status"></div>
 
-  <script type="module" src="js/app.js"></script>
+  <script type="module" src="js/app.js?v=2"></script>
 </body>
 </html>
