@@ -1,26 +1,42 @@
-const APPROVALS_KEY = 'zepfilms-edit-panel-approvals-v1';
+const APPROVALS_KEY = 'zepfilms-edit-panel-approvals-v2';
 const DRAFTS_KEY = 'zepfilms-edit-panel-drafts-v1';
 const STATUS_LABEL = {
   pendiente: 'Pendiente',
   en_progreso: 'En progreso',
   esperando_aprobacion: 'Esperando tu aprobación',
   aprobado: 'Aprobado',
+  cambios_pedidos: 'Cambios pedidos',
   borrador: 'Borrador',
 };
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 
-let DATA = { projects: [], style: null };
+let DATA = { projects: [], drive: null };
 let STYLE = null;
 let CURRENT = { view: 'home', slug: null };
+let LAST_UNDO = null;
 
-function toast(msg) {
+function toast(msg, { undo } = {}) {
   const el = $('#toast');
-  el.textContent = msg;
+  el.innerHTML = '';
+  const span = document.createElement('span');
+  span.textContent = msg;
+  el.appendChild(span);
+  if (undo) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'toast-undo';
+    btn.textContent = 'Deshacer';
+    btn.addEventListener('click', () => {
+      undo();
+      el.classList.remove('show');
+    });
+    el.appendChild(btn);
+  }
   el.classList.add('show');
   clearTimeout(toast._t);
-  toast._t = setTimeout(() => el.classList.remove('show'), 2200);
+  toast._t = setTimeout(() => el.classList.remove('show'), undo ? 6000 : 2600);
 }
 
 function escapeHtml(s) {
@@ -31,23 +47,11 @@ function escapeHtml(s) {
     .replace(/"/g, '&quot;');
 }
 
-async function copyText(text) {
-  try {
-    await navigator.clipboard.writeText(text);
-  } catch {
-    const ta = document.createElement('textarea');
-    ta.value = text;
-    document.body.appendChild(ta);
-    ta.select();
-    document.execCommand('copy');
-    ta.remove();
-  }
-  toast('Copiado — pégalo en el chat con ZepFilms');
-}
-
 function loadJSON(key, fallback) {
   try {
-    return JSON.parse(localStorage.getItem(key) || '') || fallback;
+    const raw = localStorage.getItem(key);
+    if (!raw) return fallback;
+    return JSON.parse(raw) || fallback;
   } catch {
     return fallback;
   }
@@ -61,20 +65,90 @@ function saveApprovals(data) { saveJSON(APPROVALS_KEY, data); }
 function loadDrafts() { return loadJSON(DRAFTS_KEY, []); }
 function saveDrafts(list) { saveJSON(DRAFTS_KEY, list); }
 
+async function copyText(text) {
+  // 1) Clipboard API
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return { ok: true, method: 'clipboard' };
+    }
+  } catch (_) { /* fall through */ }
+
+  // 2) execCommand fallback
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.setAttribute('readonly', '');
+    ta.style.position = 'fixed';
+    ta.style.left = '-9999px';
+    ta.style.top = '0';
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    ta.setSelectionRange(0, ta.value.length);
+    const ok = document.execCommand('copy');
+    ta.remove();
+    if (ok) return { ok: true, method: 'execCommand' };
+  } catch (_) { /* fall through */ }
+
+  // 3) Modal with selected text
+  showCopyModal(text);
+  return { ok: false, method: 'modal' };
+}
+
+function showCopyModal(text) {
+  const modal = $('#modalCopy');
+  const ta = $('#copyFallbackText');
+  ta.value = text;
+  modal.hidden = false;
+  setTimeout(() => {
+    ta.focus();
+    ta.select();
+  }, 30);
+}
+
 function statusClass(status) {
   return `status-${status || 'pendiente'}`;
 }
 function statusDot(status) {
   if (status === 'aprobado') return 'ok';
-  if (status === 'esperando_aprobacion' || status === 'en_progreso') return 'warn';
+  if (status === 'esperando_aprobacion' || status === 'en_progreso' || status === 'cambios_pedidos') return 'warn';
   if (status === 'borrador') return 'draft';
   return '';
 }
 
-function progressOf(pipeline) {
-  const total = pipeline?.length || 1;
-  const done = (pipeline || []).filter((s) => s.status === 'aprobado').length;
+function approvalKey(projectId, stepId) {
+  return `${projectId}:${stepId}`;
+}
+
+/** Effective step status: JSON aprobado wins; else local override; else JSON. */
+function effectiveStepStatus(project, step) {
+  if (step.status === 'aprobado') return 'aprobado';
+  const local = loadApprovals()[approvalKey(project.id, step.id)];
+  if (local?.status === 'aprobado' || local?.status === 'cambios_pedidos') return local.status;
+  return step.status || 'pendiente';
+}
+
+function progressOf(project) {
+  const pipeline = project.pipeline || [];
+  const total = pipeline.length || 1;
+  const done = pipeline.filter((s) => effectiveStepStatus(project, s) === 'aprobado').length;
   return { done, total, pct: Math.round((done / total) * 100) };
+}
+
+function stepNeedsMedia(step) {
+  return step.id === 'clean_audio' || step.id === 'edit';
+}
+function stepHasRequiredMedia(project, step) {
+  if (step.id === 'clean_audio') return !!project.media?.cleanedAudio;
+  if (step.id === 'edit') return !!project.media?.videoPreview;
+  return true;
+}
+function canApproveStep(project, step) {
+  if (!step.approvable) return false;
+  if (step.status === 'aprobado') return false;
+  if (stepNeedsMedia(step) && !stepHasRequiredMedia(project, step)) return false;
+  return true;
 }
 
 function allProjects() {
@@ -82,7 +156,6 @@ function allProjects() {
   const drafts = loadDrafts().map((p) => ({ ...p, source: 'draft', status: 'borrador' }));
   return [...remote, ...drafts];
 }
-
 function findProject(slug) {
   return allProjects().find((p) => p.slug === slug || p.id === slug) || null;
 }
@@ -91,19 +164,16 @@ function parseRoute() {
   const raw = (location.hash || '#/').replace(/^#/, '');
   const parts = raw.split('/').filter(Boolean);
   if (!parts.length) return { view: 'home', slug: null };
-  if (parts[0] === 'settings' || parts[0] === 'ayuda' || parts[0] === 'help') {
+  if (parts[0] === 'settings' || parts[0] === 'ayuda' || parts[0] === 'help' || parts[0] === 'style' || parts[0] === 'guia') {
     return { view: 'settings', slug: null };
   }
   if (parts[0] === 'p' && parts[1]) return { view: 'project', slug: parts[1] };
-  if (parts[0] === 'style' || parts[0] === 'guia') return { view: 'settings', slug: null };
   return { view: 'home', slug: null };
 }
 
 function setSidebarOpen(open) {
   $('#sidebar').classList.toggle('open', open);
-  const bd = $('#sidebarBackdrop');
-  if (open) bd.hidden = false;
-  else bd.hidden = true;
+  $('#sidebarBackdrop').hidden = !open;
 }
 
 function mediaBlock(label, path, kind) {
@@ -130,14 +200,65 @@ function buildApprovalMessage(project, step, kind, notes) {
     const c = project.review.counts;
     lines.push(`Propuestas: ${c.total} (silencios ${c.silence}, retomas ${c.retake})`);
   }
+  if (project.drive?.folderUrl) lines.push(`Drive del proyecto: ${project.drive.folderUrl}`);
   return lines.join('\n');
 }
 
-function renderStep(project, step, index, approvals) {
-  const status = step.status || 'pendiente';
+async function applyStepDecision(project, step, kind, notes = '') {
+  const key = approvalKey(project.id, step.id);
+  const approvals = loadApprovals();
+  const prev = approvals[key] ? { ...approvals[key] } : null;
+  const status = kind === 'approve' ? 'aprobado' : 'cambios_pedidos';
+  const msg = buildApprovalMessage(project, step, kind, notes);
+  approvals[key] = {
+    status,
+    action: kind,
+    notes: notes.trim(),
+    message: msg,
+    at: new Date().toLocaleString('es-PE', { timeZone: 'America/Lima' }),
+  };
+  saveApprovals(approvals);
+
+  LAST_UNDO = {
+    key,
+    prev,
+    projectSlug: project.slug,
+  };
+
+  const copy = await copyText(msg);
+  const toastMsg = kind === 'approve'
+    ? (copy.ok
+      ? 'Paso aprobado ✓ — ya le avisé a ZepFilms: copia y pega en el chat'
+      : 'Paso aprobado ✓ — copia el mensaje del cuadro')
+    : (copy.ok
+      ? 'Cambios pedidos ✓ — pega el mensaje en el chat con ZepFilms'
+      : 'Cambios pedidos ✓ — copia el mensaje del cuadro');
+
+  toast(toastMsg, {
+    undo: () => {
+      const a = loadApprovals();
+      if (LAST_UNDO?.prev) a[LAST_UNDO.key] = LAST_UNDO.prev;
+      else delete a[LAST_UNDO.key];
+      saveApprovals(a);
+      toast('Deshecho');
+      if (CURRENT.view === 'project' && CURRENT.slug === project.slug) {
+        renderProject(findProject(project.slug));
+      }
+      renderNav();
+    },
+  });
+
+  // Re-render project view so pills/progress update immediately
+  render();
+}
+
+function renderStep(project, step, index) {
+  const status = effectiveStepStatus(project, step);
   const label = STATUS_LABEL[status] || STATUS_LABEL.pendiente;
-  const key = `${project.id}:${step.id}`;
-  const saved = approvals[key];
+  const key = approvalKey(project.id, step.id);
+  const saved = loadApprovals()[key];
+  const approvable = canApproveStep(project, step);
+  const blockedMedia = step.approvable && stepNeedsMedia(step) && !stepHasRequiredMedia(project, step);
 
   let meta = '';
   if (step.id === 'cuts' && project.review) {
@@ -151,8 +272,12 @@ function renderStep(project, step, index, approvals) {
 
   let media = '';
   if (step.id === 'clean_audio') media = mediaBlock('Audio limpio', project.media?.cleanedAudio, 'audio');
-  else if (step.id === 'edit') media = mediaBlock('Vista previa', project.media?.videoPreview, 'video');
-  else if (step.id === 'packaging') {
+  else if (step.id === 'edit') {
+    media = mediaBlock('Vista previa', project.media?.videoPreview, 'video');
+    if (project.drive?.folderUrl) {
+      media += `<a class="drive-mini" href="${escapeHtml(project.drive.folderUrl)}" target="_blank" rel="noopener">📁 Abrir en Drive</a>`;
+    }
+  } else if (step.id === 'packaging') {
     const p = project.packaging || {};
     const bits = [
       ['Miniatura', p.thumbnail],
@@ -173,23 +298,25 @@ function renderStep(project, step, index, approvals) {
   }
 
   const savedBits = [];
-  if (saved?.action) {
-    savedBits.push(`<div class="step-saved">Última: <strong>${escapeHtml(saved.action === 'approve' ? 'Aprobar' : 'Pedir cambios')}</strong></div>`);
+  if (saved?.action && step.status !== 'aprobado') {
+    savedBits.push(`<div class="step-saved">Guardado local: <strong>${escapeHtml(STATUS_LABEL[saved.status] || saved.action)}</strong></div>`);
   }
 
   const footParts = [];
   if (step.id === 'cuts' && step.link) {
     footParts.push(`<a class="btn btn-primary btn-sm" href="${escapeHtml(step.link)}">Abrir revisión</a>`);
   }
-  if (step.approvable && project.source !== 'draft') {
+  if (step.approvable && project.source !== 'draft' && step.status !== 'aprobado') {
+    const disabled = blockedMedia ? 'disabled' : '';
+    const title = blockedMedia ? 'title="Disponible cuando haya archivo"' : '';
     footParts.push(`
-      <div class="actions" data-step-actions="${escapeHtml(key)}">
-        <button type="button" class="btn btn-primary btn-sm" data-act="approve">Aprobar</button>
+      <div class="actions" data-step-actions="${escapeHtml(key)}" data-project="${escapeHtml(project.id)}" data-step="${escapeHtml(step.id)}">
+        <button type="button" class="btn btn-primary btn-sm" data-act="approve" ${disabled} ${title}>Aprobar</button>
         <button type="button" class="btn btn-warn btn-sm" data-act="ask-changes">Pedir cambios</button>
         <div class="change-box" data-change-box>
           <textarea placeholder="Describe qué quieres cambiar…"></textarea>
           <div class="change-actions">
-            <button type="button" class="btn btn-primary btn-sm" data-act="send-changes">Copiar pedido</button>
+            <button type="button" class="btn btn-primary btn-sm" data-act="send-changes">Enviar</button>
             <button type="button" class="btn btn-ghost btn-sm" data-act="cancel-changes">Cancelar</button>
           </div>
         </div>
@@ -217,36 +344,47 @@ function renderStep(project, step, index, approvals) {
 
 function bindApprovals(project) {
   $$('[data-step-actions]').forEach((wrap) => {
-    const key = wrap.getAttribute('data-step-actions');
-    const stepId = key.split(':').slice(1).join(':');
+    const stepId = wrap.getAttribute('data-step');
     const step = (project.pipeline || []).find((s) => s.id === stepId);
+    if (!step) return;
     const box = $('[data-change-box]', wrap);
     const ta = $('textarea', box);
+
     wrap.addEventListener('click', async (ev) => {
       const btn = ev.target.closest('[data-act]');
-      if (!btn) return;
+      if (!btn || btn.disabled) return;
       const act = btn.dataset.act;
-      if (act === 'ask-changes') { box.classList.add('open'); ta.focus(); return; }
-      if (act === 'cancel-changes') { box.classList.remove('open'); return; }
-      if (act === 'approve' || act === 'send-changes') {
-        const kind = act === 'approve' ? 'approve' : 'changes';
-        const notes = kind === 'changes' ? (ta.value || '') : '';
-        if (kind === 'changes' && !notes.trim()) {
+      if (act === 'ask-changes') {
+        box.classList.add('open');
+        ta.focus();
+        return;
+      }
+      if (act === 'cancel-changes') {
+        box.classList.remove('open');
+        return;
+      }
+      if (act === 'approve') {
+        if (!canApproveStep(project, step)) {
+          toast('Disponible cuando haya archivo');
+          return;
+        }
+        btn.disabled = true;
+        try {
+          await applyStepDecision(project, step, 'approve');
+        } finally {
+          // render() rebuilds DOM
+        }
+        return;
+      }
+      if (act === 'send-changes') {
+        const notes = ta.value || '';
+        if (!notes.trim()) {
           toast('Escribe qué cambios necesitas');
           ta.focus();
           return;
         }
-        const msg = buildApprovalMessage(project, step, kind, notes);
-        const approvals = loadApprovals();
-        approvals[key] = {
-          action: kind,
-          notes: notes.trim(),
-          message: msg,
-          at: new Date().toLocaleString('es-PE', { timeZone: 'America/Lima' }),
-        };
-        saveApprovals(approvals);
-        await copyText(msg);
-        if (kind === 'changes') box.classList.remove('open');
+        btn.disabled = true;
+        await applyStepDecision(project, step, 'changes', notes);
       }
     });
   });
@@ -255,26 +393,37 @@ function bindApprovals(project) {
 function renderNav() {
   const root = $('#projectNav');
   const list = allProjects();
-  if (!list.length) {
-    root.innerHTML = `<div class="empty" style="padding:8px;font-size:0.8rem">Sin proyectos</div>`;
-    return;
-  }
-  root.innerHTML = list.map((p) => {
-    const active = CURRENT.view === 'project' && CURRENT.slug === p.slug ? 'active' : '';
-    const sub = p.source === 'draft' ? 'Borrador — envíalo a ZepFilms' : (p.subtitle || '');
-    return `<a class="nav-item ${active}" href="#/p/${escapeHtml(p.slug)}">
-      <span class="dot ${statusDot(p.status)}"></span>
-      <span class="nav-text">${escapeHtml(p.title)}
-        ${sub ? `<span class="nav-sub">${escapeHtml(sub)}</span>` : ''}
-      </span>
-    </a>`;
-  }).join('');
+  root.innerHTML = list.length
+    ? list.map((p) => {
+      const active = CURRENT.view === 'project' && CURRENT.slug === p.slug ? 'active' : '';
+      const sub = p.source === 'draft' ? 'Borrador — envíalo a ZepFilms' : (p.subtitle || '');
+      return `<a class="nav-item ${active}" href="#/p/${escapeHtml(p.slug)}">
+        <span class="dot ${statusDot(p.status)}"></span>
+        <span class="nav-text">${escapeHtml(p.title)}
+          ${sub ? `<span class="nav-sub">${escapeHtml(sub)}</span>` : ''}
+        </span>
+      </a>`;
+    }).join('')
+    : `<div class="empty" style="padding:8px;font-size:0.8rem">Sin proyectos</div>`;
 
-  $$('.sidebar .nav-item[data-nav="settings"], .sidebar .nav-item[data-nav="help"]').forEach((el) => {
+  $$('.sidebar .nav-item[data-nav="settings"]').forEach((el) => {
     el.classList.toggle('active', CURRENT.view === 'settings');
   });
-  const homeBrand = $('.brand');
-  if (homeBrand) homeBrand.classList.toggle('active', CURRENT.view === 'home');
+
+  const drive = DATA.drive?.rootUrl;
+  const navDrive = $('#navDrive');
+  if (navDrive) {
+    if (drive) {
+      navDrive.href = drive;
+      navDrive.removeAttribute('aria-disabled');
+    } else {
+      navDrive.href = '#';
+      navDrive.addEventListener('click', (e) => {
+        e.preventDefault();
+        toast('Carpeta Drive aún no configurada');
+      }, { once: true });
+    }
+  }
 }
 
 function renderHome() {
@@ -282,7 +431,7 @@ function renderHome() {
   const list = allProjects();
   const cards = list.map((p) => {
     const st = STATUS_LABEL[p.status] || p.status;
-    const { done, total, pct } = progressOf(p.pipeline || []);
+    const { done, total, pct } = progressOf(p);
     const draftBadge = p.source === 'draft'
       ? `<span class="status-badge status-borrador">Borrador</span>`
       : `<span class="status-badge ${statusClass(p.status)}">${escapeHtml(st)}</span>`;
@@ -294,7 +443,7 @@ function renderHome() {
         </div>
         ${draftBadge}
       </div>
-      ${p.pipeline ? `<div style="margin-top:12px" class="progress-track"><div class="progress-fill" style="width:${pct}%"></div></div>
+      ${p.pipeline?.length ? `<div style="margin-top:12px" class="progress-track"><div class="progress-fill" style="width:${pct}%"></div></div>
       <p class="progress-label" style="margin:6px 0 0">${done}/${total} · ${pct}%</p>` : `<p class="sub" style="margin-top:12px">Borrador — aún no está en el flujo oficial</p>`}
     </a>`;
   }).join('');
@@ -330,7 +479,6 @@ function renderDraftActions(project) {
 
 function renderProject(project) {
   $('#topbarTitle').textContent = project.title;
-  const approvals = loadApprovals();
   if (project.source === 'draft') {
     $('#app').innerHTML = `
       <div class="project-head">
@@ -338,7 +486,9 @@ function renderProject(project) {
           <h1>${escapeHtml(project.title)}</h1>
           <p class="sub">${escapeHtml(project.subtitle || project.channel || 'Borrador local')}</p>
         </div>
-        <span class="status-badge status-borrador">Borrador</span>
+        <div class="project-head-right">
+          <span class="status-badge status-borrador">Borrador</span>
+        </div>
       </div>
       ${renderDraftActions(project)}`;
     $('#btnSendDraft')?.addEventListener('click', () => sendDraft(project));
@@ -346,20 +496,30 @@ function renderProject(project) {
     return;
   }
 
-  const { done, total, pct } = progressOf(project.pipeline || []);
+  const { done, total, pct } = progressOf(project);
   const st = STATUS_LABEL[project.status] || project.status;
+  const driveUrl = project.drive?.folderUrl || '';
+  const drivePill = driveUrl
+    ? `<a class="pill-link drive-pill" href="${escapeHtml(driveUrl)}" target="_blank" rel="noopener" title="Abrir carpeta del proyecto en Drive">
+         <span aria-hidden="true">📁</span> Abrir Drive
+       </a>`
+    : '';
+
   $('#app').innerHTML = `
     <div class="project-head">
       <div>
         <h1>${escapeHtml(project.title)}</h1>
         <p class="sub">${escapeHtml(project.subtitle || '')}</p>
       </div>
-      <span class="status-badge ${statusClass(project.status)}">${escapeHtml(st)}</span>
+      <div class="project-head-right">
+        <span class="status-badge ${statusClass(project.status)}">${escapeHtml(st)}</span>
+        ${drivePill}
+      </div>
     </div>
     <div class="progress-track"><div class="progress-fill" style="width:${pct}%"></div></div>
     <p class="progress-label">${done} de ${total} pasos aprobados · ${pct}%</p>
     <ol class="steps">
-      ${(project.pipeline || []).map((s, i) => renderStep(project, s, i, approvals)).join('')}
+      ${(project.pipeline || []).map((s, i) => renderStep(project, s, i)).join('')}
     </ol>`;
   bindApprovals(project);
 }
@@ -379,7 +539,6 @@ function renderSettings() {
       <h1>Settings</h1>
       <p>Cómo empezar un video y la guía de estilo de edición.</p>
     </header>
-
     <section class="card" style="margin-bottom:16px">
       <h3>Nuevo video — cómo empezar</h3>
       <p class="sub">Sin formularios raros: lo mandas por el chat.</p>
@@ -388,15 +547,9 @@ function renderSettings() {
         También puedes usar <strong>+ Nuevo proyecto</strong> para armar un borrador y copiarlo.
       </div>
       <ol style="margin:0;padding-left:1.2rem;color:var(--muted);font-size:0.9rem">
-        ${(howto?.items || [
-          'Manda el audio (Drive) en el chat.',
-          'Se carga la revisión de cortes.',
-          'Aprueba o pide cambios.',
-          'Audio limpio → edición → packaging → YouTube.',
-        ]).map((it) => `<li style="margin:6px 0">${escapeHtml(it)}</li>`).join('')}
+        ${(howto?.items || []).map((it) => `<li style="margin:6px 0">${escapeHtml(it)}</li>`).join('')}
       </ol>
     </section>
-
     <section class="card">
       <h3>${escapeHtml(STYLE?.title || 'Estilo de edición')}</h3>
       <p class="sub">${escapeHtml(STYLE?.subtitle || '')}</p>
@@ -404,7 +557,7 @@ function renderSettings() {
     </section>`;
 }
 
-function sendDraft(project) {
+async function sendDraft(project) {
   const when = new Date().toLocaleString('es-PE', { timeZone: 'America/Lima' });
   const msg = [
     'Nuevo proyecto (borrador del Panel de edición)',
@@ -416,12 +569,12 @@ function sendDraft(project) {
     `Título YT: ${project.ytTitle || '(pendiente)'}`,
     `Fecha (America/Lima): ${when}`,
   ].join('\n');
-  copyText(msg);
+  const copy = await copyText(msg);
+  toast(copy.ok ? 'Copiado — pégalo en el chat con ZepFilms' : 'Copia el mensaje del cuadro');
 }
 
 function deleteDraft(slug) {
-  const next = loadDrafts().filter((d) => d.slug !== slug);
-  saveDrafts(next);
+  saveDrafts(loadDrafts().filter((d) => d.slug !== slug));
   toast('Borrador eliminado');
   location.hash = '#/';
   render();
@@ -441,9 +594,10 @@ function openModal() {
   $('#formNew').reset();
   setTimeout(() => $('#formNew [name="title"]')?.focus(), 50);
 }
-function closeModal() {
-  $('#modalNew').hidden = true;
-}
+function closeModal() { $('#modalNew').hidden = true; }
+function openHelp() { $('#modalHelp').hidden = false; }
+function closeHelp() { $('#modalHelp').hidden = true; }
+function closeCopy() { $('#modalCopy').hidden = true; }
 
 function createDraft(form) {
   const fd = new FormData(form);
@@ -479,10 +633,7 @@ function render() {
   CURRENT = parseRoute();
   renderNav();
   setSidebarOpen(false);
-  if (CURRENT.view === 'settings') {
-    renderSettings();
-    return;
-  }
+  if (CURRENT.view === 'settings') { renderSettings(); return; }
   if (CURRENT.view === 'project') {
     const project = findProject(CURRENT.slug);
     if (!project) {
@@ -499,7 +650,7 @@ function render() {
 async function boot() {
   try {
     const [projRes, styleRes] = await Promise.all([
-      fetch('data/projects.json?v=4'),
+      fetch('data/projects.json?v=5'),
       fetch('data/style.json?v=1'),
     ]);
     if (projRes.ok) DATA = await projRes.json();
@@ -512,6 +663,14 @@ async function boot() {
   $('#btnMenu').addEventListener('click', () => setSidebarOpen(true));
   $('#sidebarBackdrop').addEventListener('click', () => setSidebarOpen(false));
   $$('[data-close-modal]').forEach((el) => el.addEventListener('click', closeModal));
+  $('#btnHelp')?.addEventListener('click', openHelp);
+  $$('[data-close-help]').forEach((el) => el.addEventListener('click', closeHelp));
+  $$('[data-close-copy]').forEach((el) => el.addEventListener('click', closeCopy));
+  $('#btnSelectCopy')?.addEventListener('click', () => {
+    const ta = $('#copyFallbackText');
+    ta.focus();
+    ta.select();
+  });
   $('#formNew').addEventListener('submit', (ev) => {
     ev.preventDefault();
     createDraft(ev.target);

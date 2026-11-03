@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Inter+Tight:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="css/dashboard.css?v=4" />
+  <link rel="stylesheet" href="css/dashboard.css?v=6" />
 </head>
 <body>
   <div class="app">
@@ -24,14 +24,18 @@
         </nav>
       </div>
       <div class="sidebar-bottom">
+        <a class="nav-item" id="navDrive" href="#" target="_blank" rel="noopener" data-nav="drive">
+          <span class="nav-ico" aria-hidden="true">📁</span>
+          <span>Drive</span>
+        </a>
         <a class="nav-item" href="#/settings" data-nav="settings">
           <span class="nav-ico" aria-hidden="true">⚙</span>
           <span>Settings</span>
         </a>
-        <a class="nav-item" href="#/settings" data-nav="help">
+        <button type="button" class="nav-item nav-btn" id="btnHelp" data-nav="help">
           <span class="nav-ico" aria-hidden="true">?</span>
           <span>Ayuda</span>
-        </a>
+        </button>
       </div>
     </aside>
 
@@ -83,7 +87,50 @@
     </div>
   </div>
 
+  
+  <div class="modal" id="modalHelp" hidden>
+    <div class="modal-backdrop" data-close-help></div>
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="helpTitle">
+      <div class="modal-head">
+        <h2 id="helpTitle">Ayuda</h2>
+        <button type="button" class="btn btn-ghost btn-icon" data-close-help aria-label="Cerrar">✕</button>
+      </div>
+      <div class="modal-body">
+        <p><strong>Cómo usar el panel</strong></p>
+        <ol>
+          <li>Elige un proyecto en el menú izquierdo.</li>
+          <li>En cada paso, usa <em>Aprobar</em> o <em>Pedir cambios</em>. El estado se guarda en tu navegador.</li>
+          <li>Al aprobar se copia un mensaje: pégalo en el chat con ZepFilms.</li>
+          <li><em>Abrir Drive</em> abre la carpeta del proyecto donde estarán los videos.</li>
+          <li><em>+ Nuevo proyecto</em> crea un borrador local que puedes enviar por el chat.</li>
+        </ol>
+        <p class="sub">Si el portapapeles falla, verás el texto para copiarlo a mano.</p>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-primary" data-close-help>Entendido</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal" id="modalCopy" hidden>
+    <div class="modal-backdrop" data-close-copy></div>
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="copyTitle">
+      <div class="modal-head">
+        <h2 id="copyTitle">Copia este mensaje</h2>
+        <button type="button" class="btn btn-ghost btn-icon" data-close-copy aria-label="Cerrar">✕</button>
+      </div>
+      <div class="modal-body">
+        <p class="sub">El portapapeles no respondió. Selecciona el texto y cópialo (Ctrl/Cmd+C), luego pégalo en el chat con ZepFilms.</p>
+        <textarea id="copyFallbackText" rows="8" readonly></textarea>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-primary" id="btnSelectCopy">Seleccionar todo</button>
+          <button type="button" class="btn" data-close-copy>Cerrar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <div class="toast" id="toast" role="status"></div>
-  <script src="js/dashboard.js?v=4"></script>
+  <script src="js/dashboard.js?v=5"></script>
 </body>
 </html>
