@@ -248,3 +248,11 @@ body { padding-bottom: calc(56px + var(--safe-bottom)); }
   }
   .preview-all { margin-left: 0; width: 100%; }
 }
+
+.apply-hint {
+  color: #9ec1ff;
+  font-weight: 600;
+}
+.preview-all {
+  gap: 6px;
+}

@@ -3,6 +3,7 @@ import RegionsPlugin from './regions.esm.js';
 
 const STORAGE_KEY = 'mary-cooper-audio-review-v2';
 const PAD = 2.0;
+const SKIP_LOOKAHEAD = 0.03; // 30 ms
 
 const $ = (id) => document.getElementById(id);
 const statusEl = $('status');
@@ -15,12 +16,17 @@ let regionPlugin = null;
 let regionById = new Map();
 let decisions = {}; // id -> 'borrar' | 'dejar' | 'pendiente'
 let keepTake = {}; // groupId -> takeId
-let playMode = null;
+let playMode = null; // null | 'segment' | 'preview'
 let stopAt = null;
-let previewQueue = [];
 let previewActive = false;
 let filterMode = 'all';
 let activeId = null;
+let skipRaf = null;
+let lastKeepRanges = [];
+let gainNode = null;
+let audioCtx = null;
+let mediaNode = null;
+let skipping = false;
 
 function fmt(t) {
   if (!Number.isFinite(t) || t < 0) t = 0;
@@ -58,6 +64,8 @@ function saveState() {
   const payload = { version: 2, decisions, keepTake, savedAt: new Date().toISOString() };
   localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
   updateCounts();
+  // If preview is running, refresh skip map immediately (e.g. take picker change)
+  if (previewActive) lastKeepRanges = computeFinalKeepRanges();
 }
 
 function recommendedTakeId(g) {
@@ -91,34 +99,46 @@ function groupForProposal(p) {
   return DATA.groups[p.group_id] || null;
 }
 
+/** Proposal is applied unless user explicitly chose Dejar. Pending = apply proposal. */
+function appliesProposal(p) {
+  return decisions[p.id] !== 'dejar';
+}
+
+function mergeRanges(ranges) {
+  const sorted = [...ranges].sort((a, b) => a[0] - b[0]);
+  const merged = [];
+  for (const c of sorted) {
+    if (!merged.length || c[0] > merged[merged.length - 1][1] + 0.001) merged.push([...c]);
+    else merged[merged.length - 1][1] = Math.max(merged[merged.length - 1][1], c[1]);
+  }
+  return merged;
+}
+
 function computeCuts() {
   const cuts = [];
   for (const p of DATA.proposals) {
-    if (decisions[p.id] !== 'borrar') continue;
+    if (!appliesProposal(p)) continue;
     if (p.type === 'silence') {
-      const keep = (p.meta && p.meta.keep_duration) || 0;
+      const keep = (p.meta && p.meta.keep_duration) || 0.3;
       const a = p.start + keep;
       if (a < p.end - 0.01) cuts.push([a, p.end]);
     } else if (p.type === 'retake') {
       const g = groupForProposal(p);
-      if (!g) {
+      if (!g || !g.takes?.length) {
         cuts.push([p.start, p.end]);
         continue;
       }
-      const take = g.takes.find((t) => t.id === keepTake[g.id]) || g.takes[g.takes.length - 1];
+      const take =
+        g.takes.find((t) => t.id === keepTake[g.id]) ||
+        g.takes.find((t) => t.id === recommendedTakeId(g)) ||
+        g.takes[g.takes.length - 1];
       const spanStart = Math.min(...g.takes.map((t) => t.start));
       const spanEnd = Math.max(...g.takes.map((t) => t.end));
       if (take.start > spanStart + 0.01) cuts.push([spanStart, take.start]);
       if (take.end < spanEnd - 0.01) cuts.push([take.end, spanEnd]);
     }
   }
-  cuts.sort((a, b) => a[0] - b[0]);
-  const merged = [];
-  for (const c of cuts) {
-    if (!merged.length || c[0] > merged[merged.length - 1][1] + 0.001) merged.push([...c]);
-    else merged[merged.length - 1][1] = Math.max(merged[merged.length - 1][1], c[1]);
-  }
-  return merged;
+  return mergeRanges(cuts);
 }
 
 function complementKeep(cuts, duration) {
@@ -132,15 +152,25 @@ function complementKeep(cuts, duration) {
   return keep;
 }
 
+/** Single source of truth for preview + export. */
+function computeFinalKeepRanges(duration) {
+  const dur = duration ?? (wavesurfer?.getDuration?.() || DATA?.duration || 0);
+  const cuts = computeCuts();
+  return complementKeep(cuts, dur);
+}
+
 function cutForProposal(p) {
-  if (decisions[p.id] !== 'borrar') return null;
+  if (!appliesProposal(p)) return null;
   if (p.type === 'silence') {
-    const keep = (p.meta && p.meta.keep_duration) || 0;
+    const keep = (p.meta && p.meta.keep_duration) || 0.3;
     return [p.start + keep, p.end];
   }
   const g = groupForProposal(p);
   if (!g) return [p.start, p.end];
-  const take = g.takes.find((t) => t.id === keepTake[g.id]) || g.takes[g.takes.length - 1];
+  const take =
+    g.takes.find((t) => t.id === keepTake[g.id]) ||
+    g.takes.find((t) => t.id === recommendedTakeId(g)) ||
+    g.takes[g.takes.length - 1];
   const spanStart = Math.min(...g.takes.map((t) => t.start));
   const spanEnd = Math.max(...g.takes.map((t) => t.end));
   return { spanStart, spanEnd, keepStart: take.start, keepEnd: take.end };
@@ -150,8 +180,8 @@ function regionColor(p) {
   const d = decisions[p.id];
   if (d === 'dejar') return 'rgba(62, 207, 142, 0.32)';
   if (d === 'pendiente') {
-    if (p.type === 'retake') return 'rgba(226, 85, 85, 0.18)';
-    return 'rgba(224, 184, 58, 0.18)';
+    if (p.type === 'retake') return 'rgba(226, 85, 85, 0.22)';
+    return 'rgba(224, 184, 58, 0.22)';
   }
   if (p.type === 'retake') return 'rgba(226, 85, 85, 0.45)';
   return 'rgba(224, 184, 58, 0.42)';
@@ -160,14 +190,17 @@ function regionColor(p) {
 function regionBounds(p) {
   if (p.type === 'retake') {
     const g = groupForProposal(p);
-    if (g && decisions[p.id] === 'borrar') {
-      const take = g.takes.find((t) => t.id === keepTake[g.id]) || g.takes[g.takes.length - 1];
+    if (g && appliesProposal(p)) {
+      const take =
+        g.takes.find((t) => t.id === keepTake[g.id]) ||
+        g.takes.find((t) => t.id === recommendedTakeId(g)) ||
+        g.takes[g.takes.length - 1];
       const spanStart = Math.min(...g.takes.map((t) => t.start));
       const spanEnd = Math.max(...g.takes.map((t) => t.end));
-      if (take.kind === 'last' || take.start >= p.start) {
-        return { start: spanStart, end: take.start > spanStart ? take.start : p.end };
-      }
-      return { start: take.end, end: spanEnd };
+      // Show removed parts as region (prefer block before kept take)
+      if (take.start > spanStart + 0.05) return { start: spanStart, end: take.start };
+      if (take.end < spanEnd - 0.05) return { start: take.end, end: spanEnd };
+      return { start: spanStart, end: spanEnd };
     }
     if (g) {
       return {
@@ -222,11 +255,121 @@ function scrollToItem(id) {
   el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
+function ensureGain() {
+  try {
+    const media = wavesurfer?.getMediaElement?.();
+    if (!media) return;
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (!mediaNode) {
+      mediaNode = audioCtx.createMediaElementSource(media);
+      gainNode = audioCtx.createGain();
+      mediaNode.connect(gainNode);
+      gainNode.connect(audioCtx.destination);
+    }
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+  } catch {
+    // MediaElementSource can only be created once; ignore if already wired elsewhere
+  }
+}
+
+function fadeJump(toTime) {
+  ensureGain();
+  const g = gainNode;
+  if (!g || !audioCtx) {
+    wavesurfer.setTime(toTime);
+    return;
+  }
+  const now = audioCtx.currentTime;
+  skipping = true;
+  try {
+    g.gain.cancelScheduledValues(now);
+    g.gain.setValueAtTime(g.gain.value, now);
+    g.gain.linearRampToValueAtTime(0.05, now + 0.02);
+  } catch {}
+  wavesurfer.setTime(toTime);
+  requestAnimationFrame(() => {
+    try {
+      const t = audioCtx.currentTime;
+      g.gain.cancelScheduledValues(t);
+      g.gain.setValueAtTime(0.05, t);
+      g.gain.linearRampToValueAtTime(1, t + 0.04);
+    } catch {}
+    skipping = false;
+  });
+}
+
+function nextKeepStart(t, keepRanges) {
+  for (const [a, b] of keepRanges) {
+    if (t < a - 0.001) return a;
+    if (t >= a - 0.001 && t < b - 0.001) return null; // already in keep
+  }
+  return null; // past end
+}
+
+function findCutContaining(t, cuts) {
+  for (const [a, b] of cuts) {
+    if (t >= a - SKIP_LOOKAHEAD && t < b - 0.001) return [a, b];
+  }
+  return null;
+}
+
+function stopSkipLoop() {
+  if (skipRaf) {
+    cancelAnimationFrame(skipRaf);
+    skipRaf = null;
+  }
+}
+
+function startSkipLoop() {
+  stopSkipLoop();
+  const tick = () => {
+    skipRaf = requestAnimationFrame(tick);
+    if (!previewActive || !wavesurfer || skipping) return;
+    if (!wavesurfer.isPlaying()) return;
+    const t = wavesurfer.getCurrentTime();
+    const dur = wavesurfer.getDuration() || DATA.duration;
+    const keep = lastKeepRanges.length ? lastKeepRanges : computeFinalKeepRanges(dur);
+    const cuts = computeCuts();
+
+    // Approaching / inside a cut → jump to cut end (next keep)
+    const cut = findCutContaining(t, cuts);
+    if (cut) {
+      const [, cutEnd] = cut;
+      const dest = nextKeepStart(cutEnd - 0.001, keep);
+      const jumpTo = dest != null ? dest : cutEnd;
+      if (jumpTo > t + 0.005 && jumpTo < dur - 0.01) {
+        fadeJump(jumpTo);
+      } else if (jumpTo >= dur - 0.01 || dest == null) {
+        wavesurfer.pause();
+        previewActive = false;
+        playMode = null;
+        $('previewAll').checked = false;
+        updatePlayBtn();
+      }
+      return;
+    }
+
+    // Local segment stop (Así queda window)
+    if (stopAt != null && t >= stopAt - 0.03) {
+      wavesurfer.pause();
+      stopAt = null;
+      if (playMode === 'preview' && $('previewAll')?.checked) {
+        // continue full preview — should not hit this often with skip loop
+      } else {
+        previewActive = false;
+        playMode = null;
+        updatePlayBtn();
+      }
+    }
+  };
+  skipRaf = requestAnimationFrame(tick);
+}
+
 function stopSpecialPlayback() {
   playMode = null;
   stopAt = null;
-  previewQueue = [];
   previewActive = false;
+  stopSkipLoop();
   const pa = $('previewAll');
   if (pa) pa.checked = false;
 }
@@ -245,9 +388,9 @@ function updatePlayBtn() {
   $('btnPlay').textContent = playing ? '⏸' : '▶';
 }
 
-function playRange(start, end) {
-  stopSpecialPlayback();
-  playMode = 'segment';
+function playRange(start, end, { preview = false } = {}) {
+  if (!preview) stopSpecialPlayback();
+  playMode = preview ? 'preview' : 'segment';
   stopAt = end;
   wavesurfer.setTime(Math.max(0, start));
   wavesurfer.play();
@@ -255,7 +398,9 @@ function playRange(start, end) {
 }
 
 function playEscuchar(p) {
-  const { start, end } = regionBounds(p);
+  const g = groupForProposal(p);
+  const start = g ? Math.min(...g.takes.map((t) => t.start)) : p.start;
+  const end = g ? Math.max(...g.takes.map((t) => t.end)) : p.end;
   const a = Math.max(0, start - PAD);
   const b = Math.min(wavesurfer.getDuration(), end + PAD);
   playRange(a, b);
@@ -268,93 +413,84 @@ function playTake(t) {
 
 function playAsiQueda(p) {
   const dur = wavesurfer.getDuration();
-  const ctxA = Math.max(0, p.start - PAD);
-  let ctxB = Math.min(dur, p.end + PAD);
-  const segs = [];
+  const g = groupForProposal(p);
+  const spanStart = g ? Math.min(...g.takes.map((t) => t.start)) : p.start;
+  const spanEnd = g ? Math.max(...g.takes.map((t) => t.end)) : p.end;
+  const ctxA = Math.max(0, spanStart - PAD);
+  const ctxB = Math.min(dur, spanEnd + PAD);
 
-  if (p.type === 'silence') {
-    const keep = (p.meta && p.meta.keep_duration) || 0;
-    const cutStart = p.start + keep;
-    const cutEnd = p.end;
-    if (decisions[p.id] === 'dejar' || decisions[p.id] === 'pendiente') {
-      segs.push([ctxA, ctxB]);
-    } else {
-      if (cutStart > ctxA) segs.push([ctxA, cutStart]);
-      const after = Math.min(dur, cutEnd);
-      if (ctxB > after) segs.push([after, ctxB]);
-    }
-  } else {
-    const info = cutForProposal(p);
-    const g = groupForProposal(p);
-    const spanStart = g ? Math.min(...g.takes.map((t) => t.start)) : p.start;
-    const spanEnd = g ? Math.max(...g.takes.map((t) => t.end)) : p.end;
-    ctxB = Math.min(dur, spanEnd + PAD);
-    if (decisions[p.id] !== 'borrar' || !info) {
-      segs.push([Math.max(0, spanStart - PAD), ctxB]);
-    } else {
-      const pre = Math.max(0, spanStart - PAD);
-      const cuts = [];
-      if (info.keepStart > spanStart + 0.01) cuts.push([spanStart, info.keepStart]);
-      if (info.keepEnd < spanEnd - 0.01) cuts.push([info.keepEnd, spanEnd]);
-      const windowKeep = complementKeep(cuts, dur).filter(([a, b]) => b > pre && a < ctxB);
-      for (const [a, b] of windowKeep) segs.push([Math.max(a, pre), Math.min(b, ctxB)]);
-      if (!segs.length) segs.push([info.keepStart, info.keepEnd]);
-    }
-  }
+  // Use global final keep ranges clipped to context — same rules as export
+  const keepAll = computeFinalKeepRanges(dur);
+  const segs = keepAll
+    .map(([a, b]) => [Math.max(a, ctxA), Math.min(b, ctxB)])
+    .filter(([a, b]) => b - a > 0.05);
 
+  lastKeepRanges = keepAll;
   stopSpecialPlayback();
-  playMode = 'preview';
-  previewQueue = segs.filter(([a, b]) => b - a > 0.05);
+  $('previewAll').checked = false;
   previewActive = true;
-  playNextPreviewSeg();
+  playMode = 'preview';
+  stopAt = ctxB;
+  startSkipLoop();
+  if (!segs.length) {
+    toast('Nada que escuchar con la propuesta actual');
+    previewActive = false;
+    return;
+  }
+  wavesurfer.setTime(segs[0][0]);
+  wavesurfer.play();
+  updatePlayBtn();
   scrollToItem(p.id);
 }
 
-function playNextPreviewSeg() {
-  if (!previewQueue.length) {
-    previewActive = false;
-    playMode = null;
-    wavesurfer.pause();
-    updatePlayBtn();
+function startFullPreview(fromTime) {
+  const dur = wavesurfer.getDuration();
+  lastKeepRanges = computeFinalKeepRanges(dur);
+  if (!lastKeepRanges.length) {
+    toast('No queda audio para reproducir');
     return;
   }
-  const [a, b] = previewQueue.shift();
-  stopAt = b;
+  stopSkipLoop();
   playMode = 'preview';
-  wavesurfer.setTime(a);
+  previewActive = true;
+  stopAt = null;
+  $('previewAll').checked = true;
+  startSkipLoop();
+
+  let t0 = fromTime != null ? fromTime : wavesurfer.getCurrentTime();
+  // If starting inside a cut, jump to next keep
+  const cuts = computeCuts();
+  const hit = findCutContaining(t0, cuts);
+  if (hit) t0 = hit[1];
+  const next = nextKeepStart(t0 - 0.001, lastKeepRanges);
+  // if t0 already in keep, nextKeepStart returns null — keep t0
+  let start = t0;
+  if (next != null && (hit || !lastKeepRanges.some(([a, b]) => t0 >= a && t0 < b))) {
+    start = next;
+  }
+  // Prefer starting near playhead if in keep; else first keep
+  if (!lastKeepRanges.some(([a, b]) => start >= a - 0.01 && start < b)) {
+    start = lastKeepRanges[0][0];
+  }
+  wavesurfer.setTime(start);
   wavesurfer.play();
   updatePlayBtn();
 }
 
-function startFullPreview() {
-  const cuts = computeCuts();
-  const keep = complementKeep(cuts, wavesurfer.getDuration());
-  stopSpecialPlayback();
-  $('previewAll').checked = true;
-  playMode = 'preview';
-  previewActive = true;
-  previewQueue = keep.filter(([a, b]) => b - a > 0.05);
-  if (!previewQueue.length) {
-    toast('No queda audio para reproducir');
-    return;
-  }
-  playNextPreviewSeg();
-}
-
 function onTimeUpdate(t) {
   const dur = wavesurfer.getDuration() || DATA.duration;
+  const keepDur = lastKeepRanges.length
+    ? lastKeepRanges.reduce((acc, [a, b]) => acc + (b - a), 0)
+    : computeFinalKeepRanges(dur).reduce((acc, [a, b]) => acc + (b - a), 0);
+  // Show source time; final estimate in counts
   $('timeLabel').textContent = `${fmt(t)} / ${fmt(dur)}`;
-  if (stopAt != null && t >= stopAt - 0.03) {
-    if (playMode === 'preview' && previewActive) {
-      wavesurfer.pause();
-      playNextPreviewSeg();
-    } else {
-      wavesurfer.pause();
-      stopAt = null;
-      playMode = null;
-      updatePlayBtn();
-    }
+  if (playMode === 'segment' && stopAt != null && t >= stopAt - 0.03) {
+    wavesurfer.pause();
+    stopAt = null;
+    playMode = null;
+    updatePlayBtn();
   }
+  void keepDur;
 }
 
 function setDecision(id, value) {
@@ -364,6 +500,9 @@ function setDecision(id, value) {
   rebuildRegions();
   renderList();
   scrollToItem(id);
+  if (previewActive && $('previewAll')?.checked) {
+    lastKeepRanges = computeFinalKeepRanges();
+  }
 }
 
 function updateCounts() {
@@ -374,9 +513,12 @@ function updateCounts() {
     else if (d === 'dejar') dejar++;
     else pendiente++;
   }
-  const cutSec = computeCuts().reduce((acc, [a, b]) => acc + (b - a), 0);
+  const dur = wavesurfer?.getDuration?.() || DATA.duration || 0;
+  const keep = computeFinalKeepRanges(dur);
+  const keepSec = keep.reduce((acc, [a, b]) => acc + (b - a), 0);
+  const cutSec = Math.max(0, dur - keepSec);
   $('counts').innerHTML =
-    `<strong>${borrar}</strong> borrar · <strong>${dejar}</strong> dejar · <strong>${pendiente}</strong> pendiente · ~${fmt(cutSec)} a quitar`;
+    `<strong>${borrar}</strong> borrar · <strong>${dejar}</strong> dejar · <strong>${pendiente}</strong> pendiente · ~${fmt(cutSec)} a quitar · final ~${fmt(keepSec)}`;
 }
 
 function shortLabel(p) {
@@ -384,6 +526,12 @@ function shortLabel(p) {
   const reason = (p.reason || '').replace(/\s+/g, ' ').trim();
   if (p.type === 'silence') return reason || text || '[silencio]';
   return text || reason || p.label;
+}
+
+function pendingHint(p) {
+  if (decisions[p.id] !== 'pendiente') return '';
+  if (p.type === 'silence') return 'se aplicará la propuesta (acortar)';
+  return 'se aplicará la propuesta (solo toma elegida)';
 }
 
 function renderList() {
@@ -422,12 +570,17 @@ function renderList() {
         .join('')}</div>`;
     }
 
+    const hint = pendingHint(p);
+    const subBits = [];
+    if (p.type === 'retake' && g?.recommended_reason) subBits.push(escapeHtml(g.recommended_reason));
+    if (hint) subBits.push(`<span class="apply-hint">${escapeHtml(hint)}</span>`);
+
     el.innerHTML = `
       <span class="badge ${p.type}">${escapeHtml(p.label)}</span>
       <span class="badge-time">${fmt(p.start)}–${fmt(p.end)}</span>
       <div class="row-main">
         <div class="row-text">${escapeHtml(shortLabel(p))}</div>
-        ${p.type === 'retake' && g?.recommended_reason ? `<div class="row-sub">${escapeHtml(g.recommended_reason)}</div>` : (p.reason && p.type === 'silence' ? '' : '')}
+        ${subBits.length ? `<div class="row-sub">${subBits.join(' · ')}</div>` : ''}
       </div>
       <div class="row-actions">
         <span class="state-dot" title="${decision}"></span>
@@ -467,13 +620,22 @@ function renderList() {
         rebuildRegions();
         renderList();
         scrollToItem(p.id);
+        if (previewActive) {
+          lastKeepRanges = computeFinalKeepRanges();
+          toast('Toma actualizada en la vista previa');
+        }
         return;
       }
-      // row click -> seek
       scrollToItem(p.id);
       if (wavesurfer) {
-        wavesurfer.setTime(Math.max(0, p.start));
-        $('timeLabel').textContent = `${fmt(p.start)} / ${fmt(wavesurfer.getDuration() || DATA.duration)}`;
+        let t = Math.max(0, p.start);
+        if (previewActive) {
+          const cuts = computeCuts();
+          const hit = findCutContaining(t, cuts);
+          if (hit) t = hit[1];
+        }
+        wavesurfer.setTime(t);
+        $('timeLabel').textContent = `${fmt(t)} / ${fmt(wavesurfer.getDuration() || DATA.duration)}`;
       }
     });
 
@@ -489,34 +651,50 @@ function buildCopyText() {
     if (d === 'borrar') borrar.push(p.label);
     else if (d === 'dejar') dejar.push(p.label);
     else pendiente.push(p.label);
-    if (p.type === 'retake') {
+    if (p.type === 'retake' && appliesProposal(p)) {
       const g = groupForProposal(p);
       if (!g) continue;
       const take = g.takes.find((t) => t.id === keepTake[g.id]);
-      const rec = recommendedTakeId(g);
-      if (take && take.id !== rec) {
-        takeNotes.push(`${p.label} quedarse con ${take.take_label || take.id}`);
-      }
+      if (take) takeNotes.push(`${p.label} conservar ${take.take_label || take.id}`);
     }
   }
+  const dur = wavesurfer?.getDuration?.() || DATA.duration;
+  const keep = computeFinalKeepRanges(dur);
+  const keepSec = keep.reduce((acc, [a, b]) => acc + (b - a), 0);
   lines.push('Borrar: ' + (borrar.join(', ') || '(ninguno)'));
   lines.push('Dejar: ' + (dejar.join(', ') || '(ninguno)'));
-  lines.push('Pendiente: ' + (pendiente.join(', ') || '(ninguno)'));
+  lines.push('Pendiente(=propuesta): ' + (pendiente.join(', ') || '(ninguno)'));
+  lines.push(`Duración final ~${fmt(keepSec)}`);
   if (takeNotes.length) lines.push(takeNotes.join(' | '));
   return lines.join(' | ');
 }
 
 function downloadDecisions() {
+  const dur = wavesurfer?.getDuration?.() || DATA.duration;
+  const keep_ranges = computeFinalKeepRanges(dur).map(([a, b]) => ({
+    start: Math.round(a * 1000) / 1000,
+    end: Math.round(b * 1000) / 1000,
+  }));
+  const total_duration = keep_ranges.reduce((acc, r) => acc + (r.end - r.start), 0);
   const payload = {
     savedAt: new Date().toISOString(),
     decisions,
     keepTake,
     summary: buildCopyText(),
+    source_duration: dur,
+    total_duration: Math.round(total_duration * 1000) / 1000,
+    keep_ranges,
+    cuts: computeCuts().map(([a, b]) => ({
+      start: Math.round(a * 1000) / 1000,
+      end: Math.round(b * 1000) / 1000,
+    })),
+    note: 'Pendiente aplica la propuesta (retoma=toma elegida; silencio=acortar). Solo Dejar conserva todo.',
     detail: sortedProposals().map((p) => ({
       id: p.id,
       label: p.label,
       type: p.type,
       decision: decisions[p.id],
+      applies_proposal: appliesProposal(p),
       keep_take: p.group_id ? keepTake[p.group_id] : null,
       recommended_take: p.group_id ? recommendedTakeId(DATA.groups[p.group_id]) : null,
       start: p.start,
@@ -597,6 +775,21 @@ async function boot() {
     renderList();
     updateCounts();
     $('timeLabel').textContent = `0:00 / ${fmt(wavesurfer.getDuration())}`;
+    try { ensureGain(); } catch {}
+    window.__review = {
+      get ws() { return wavesurfer; },
+      computeCuts, computeFinalKeepRanges, appliesProposal,
+      get decisions() { return decisions; },
+      get keepTake() { return keepTake; },
+      setKeepTake(gid, tid) {
+        keepTake[gid] = tid;
+        saveState();
+        rebuildRegions();
+        if (previewActive) lastKeepRanges = computeFinalKeepRanges();
+      },
+      get previewActive() { return previewActive; },
+      startFullPreview, playAsiQueda,
+    };
   });
 
   wavesurfer.on('error', (err) => {
@@ -610,11 +803,22 @@ async function boot() {
   wavesurfer.on('play', updatePlayBtn);
   wavesurfer.on('pause', updatePlayBtn);
   wavesurfer.on('finish', () => {
-    if (playMode === 'preview' && previewActive) playNextPreviewSeg();
-    else {
-      stopSpecialPlayback();
-      updatePlayBtn();
+    if (previewActive) {
+      previewActive = false;
+      playMode = null;
+      $('previewAll').checked = false;
+      stopSkipLoop();
     }
+    updatePlayBtn();
+  });
+
+  // If user seeks into a removed range during preview, jump out
+  wavesurfer.on('interaction', () => {
+    if (!previewActive) return;
+    const t = wavesurfer.getCurrentTime();
+    const cuts = computeCuts();
+    const hit = findCutContaining(t, cuts);
+    if (hit) fadeJump(hit[1]);
   });
 
   regionPlugin.on('region-clicked', (region, e) => {
@@ -629,18 +833,18 @@ async function boot() {
     if (wavesurfer.isPlaying()) {
       wavesurfer.pause();
       if (playMode === 'preview') {
-        previewActive = false;
-        previewQueue = [];
-        playMode = null;
-        stopAt = null;
-        $('previewAll').checked = false;
+        // pause but keep preview mode / checkbox so resume continues skipping
       }
     } else {
-      playMode = null;
-      stopAt = null;
-      previewActive = false;
-      $('previewAll').checked = false;
-      wavesurfer.play();
+      if ($('previewAll')?.checked) {
+        startFullPreview(wavesurfer.getCurrentTime());
+      } else {
+        playMode = null;
+        stopAt = null;
+        previewActive = false;
+        stopSkipLoop();
+        wavesurfer.play();
+      }
     }
     updatePlayBtn();
   });
@@ -651,7 +855,7 @@ async function boot() {
   });
 
   $('previewAll').addEventListener('change', (e) => {
-    if (e.target.checked) startFullPreview();
+    if (e.target.checked) startFullPreview(0);
     else hardStop();
   });
 
