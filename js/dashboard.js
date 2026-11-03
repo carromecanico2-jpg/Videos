@@ -122,10 +122,9 @@ function renderStep(project, step, index, approvals) {
     const c = project.review.counts || {};
     meta = `
       <div class="step-meta">
-        <span class="chip-count"><strong>${c.total ?? '—'}</strong> propuestas</span>
-        <span class="chip-count"><strong>${c.silence ?? '—'}</strong> silencios</span>
-        <span class="chip-count"><strong>${c.retake ?? '—'}</strong> retomas</span>
-        ${step.link ? `<a class="btn-link" href="${escapeHtml(step.link)}">Abrir revisión de cortes →</a>` : ''}
+        <span class="chip-count"><strong>${c.total ?? '—'}</strong> prop.</span>
+        <span class="chip-count"><strong>${c.silence ?? '—'}</strong> sil.</span>
+        <span class="chip-count"><strong>${c.retake ?? '—'}</strong> ret.</span>
       </div>`;
   }
 
@@ -133,7 +132,7 @@ function renderStep(project, step, index, approvals) {
   if (step.id === 'clean_audio') {
     media = mediaBlock('Audio limpio', project.media?.cleanedAudio, 'audio');
   } else if (step.id === 'edit') {
-    media = mediaBlock('Vista previa de video', project.media?.videoPreview, 'video');
+    media = mediaBlock('Vista previa', project.media?.videoPreview, 'video');
   } else if (step.id === 'packaging') {
     const p = project.packaging || {};
     const bits = [
@@ -150,44 +149,53 @@ function renderStep(project, step, index, approvals) {
     media = `<div class="media-slot">
       <div><strong>Visibilidad:</strong> ${p.visibility ? escapeHtml(p.visibility) : '<em>pendiente</em>'}</div>
       <div><strong>Programado:</strong> ${p.scheduledAt ? escapeHtml(p.scheduledAt) : '<em>pendiente</em>'}</div>
-      <div><strong>URL:</strong> ${p.youtubeUrl ? `<a href="${escapeHtml(p.youtubeUrl)}" target="_blank" rel="noopener">${escapeHtml(p.youtubeUrl)}</a>` : '<em>pendiente</em>'}</div>
+      <div><strong>URL:</strong> ${p.youtubeUrl ? `<a href="${escapeHtml(p.youtubeUrl)}" target="_blank" rel="noopener">enlace</a>` : '<em>pendiente</em>'}</div>
     </div>`;
   }
 
-  let actions = '';
+  const savedBits = [];
+  if (saved?.action) {
+    savedBits.push(`<div class="step-saved">Última: <strong>${escapeHtml(saved.action === 'approve' ? 'Aprobar' : 'Pedir cambios')}</strong></div>`);
+  }
+  if (saved?.notes) {
+    savedBits.push(`<div class="step-saved">${escapeHtml(saved.notes)}</div>`);
+  }
+
+  const footParts = [];
+  if (step.id === 'cuts' && step.link) {
+    footParts.push(`<a class="btn-link btn-sm" href="${escapeHtml(step.link)}">Abrir revisión</a>`);
+  }
   if (step.approvable) {
-    const savedNote = saved?.notes ? `<div class="step-detail">Última nota guardada: ${escapeHtml(saved.notes)}</div>` : '';
-    const savedAct = saved?.action
-      ? `<div class="step-detail">Última acción local: <strong>${escapeHtml(saved.action === 'approve' ? 'Aprobar' : 'Pedir cambios')}</strong> (${escapeHtml(saved.at || '')})</div>`
-      : '';
-    actions = `
+    footParts.push(`
       <div class="actions" data-step-actions="${escapeHtml(key)}">
-        <button type="button" class="btn btn-ok" data-act="approve">Aprobar</button>
-        <button type="button" class="btn btn-warn" data-act="ask-changes">Pedir cambios</button>
+        <button type="button" class="btn btn-ok btn-sm" data-act="approve">Aprobar</button>
+        <button type="button" class="btn btn-warn btn-sm" data-act="ask-changes">Pedir cambios</button>
         <div class="change-box" data-change-box>
           <textarea placeholder="Describe qué quieres cambiar…"></textarea>
           <div class="change-actions">
-            <button type="button" class="btn btn-primary" data-act="send-changes">Copiar pedido de cambios</button>
-            <button type="button" class="btn btn-ghost" data-act="cancel-changes">Cancelar</button>
+            <button type="button" class="btn btn-primary btn-sm" data-act="send-changes">Copiar pedido</button>
+            <button type="button" class="btn btn-ghost btn-sm" data-act="cancel-changes">Cancelar</button>
           </div>
         </div>
-      </div>
-      ${savedAct}${savedNote}`;
+      </div>`);
   }
 
   return `
     <li class="step is-${escapeHtml(status)}" data-step-id="${escapeHtml(step.id)}">
-      <div class="step-top">
-        <div class="step-title">
+      <div class="step-card-body">
+        <div class="step-card-head">
           <span class="step-num">${index + 1}</span>
-          <span>${escapeHtml(step.title)}</span>
+          <span class="status-badge ${statusClass(status)}">${escapeHtml(label)}</span>
         </div>
-        <span class="status-badge ${statusClass(status)}">${escapeHtml(label)}</span>
+        <h4 class="step-card-title">${escapeHtml(step.title)}</h4>
+        ${step.detail ? `<p class="step-detail">${escapeHtml(step.detail)}</p>` : ''}
+        ${meta}
+        ${media}
+        ${savedBits.join('')}
       </div>
-      ${step.detail ? `<p class="step-detail">${escapeHtml(step.detail)}</p>` : ''}
-      ${meta}
-      ${media}
-      ${actions}
+      <div class="step-card-foot">
+        ${footParts.join('') || '<span class="foot-spacer"></span>'}
+      </div>
     </li>`;
 }
 
@@ -272,7 +280,7 @@ function renderProjects(data) {
 async function boot() {
   let data;
   try {
-    const res = await fetch('data/projects.json?v=2');
+    const res = await fetch('data/projects.json?v=3');
     if (!res.ok) throw new Error('HTTP ' + res.status);
     data = await res.json();
   } catch (e) {
