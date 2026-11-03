@@ -6,7 +6,7 @@
   <meta name="color-scheme" content="dark" />
   <link rel="icon" href="favicon.svg" type="image/svg+xml" />
   <title>Revisión de audio — Mary Cooper</title>
-  <link rel="stylesheet" href="css/styles.css?v=4" />
+  <link rel="stylesheet" href="css/styles.css?v=5" />
 </head>
 <body>
   <div class="wrap">
@@ -25,18 +25,26 @@
 
     <section class="player-card" aria-label="Reproductor">
       <div class="controls">
-        <button type="button" class="btn btn-primary btn-play" id="btnPlay" aria-label="Reproducir o pausar">▶</button>
-        <button type="button" class="btn btn-ghost" id="btnStop" title="Detener">⏹</button>
+        <button type="button" class="btn btn-primary btn-play" id="btnPlay" aria-label="Reproducir o pausar" disabled>
+          <span class="btn-label">▶</span>
+          <span class="btn-spin" hidden aria-hidden="true"></span>
+        </button>
+        <button type="button" class="btn btn-ghost" id="btnStop" title="Detener" disabled>⏹</button>
         <span class="time" id="timeLabel">0:00 / 0:00</span>
         <label class="preview-all">
-          <input type="checkbox" id="previewAll" />
+          <input type="checkbox" id="previewAll" disabled />
           Escuchar todo como quedaría
         </label>
       </div>
       <div id="waveform"></div>
+      <div id="audioLoader" class="audio-loader" role="status" aria-live="polite">
+        <div class="spinner" aria-hidden="true"></div>
+        <div class="loader-text" id="loaderText">Cargando audio…</div>
+        <div class="loader-bar"><div class="loader-bar-fill" id="loaderBar" style="width:0%"></div></div>
+      </div>
     </section>
 
-    <div id="status" class="loading">Cargando audio y propuestas…</div>
+    <div id="status" class="loading">Cargando propuestas…</div>
 
     <div class="toolbar">
       <div class="filters" role="tablist" aria-label="Filtros">
@@ -64,6 +72,6 @@
   </div>
   <div class="toast" id="toast" role="status"></div>
 
-  <script type="module" src="js/app.js?v=4"></script>
+  <script type="module" src="js/app.js?v=5"></script>
 </body>
 </html>

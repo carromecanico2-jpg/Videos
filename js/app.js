@@ -23,10 +23,9 @@ let filterMode = 'all';
 let activeId = null;
 let skipRaf = null;
 let lastKeepRanges = [];
-let gainNode = null;
-let audioCtx = null;
-let mediaNode = null;
 let skipping = false;
+let audioReady = false;
+let peaksData = null;
 
 function fmt(t) {
   if (!Number.isFinite(t) || t < 0) t = 0;
@@ -255,47 +254,33 @@ function scrollToItem(id) {
   el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
-function ensureGain() {
-  try {
-    const media = wavesurfer?.getMediaElement?.();
-    if (!media) return;
-    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    if (!mediaNode) {
-      mediaNode = audioCtx.createMediaElementSource(media);
-      gainNode = audioCtx.createGain();
-      mediaNode.connect(gainNode);
-      gainNode.connect(audioCtx.destination);
-    }
-    if (audioCtx.state === 'suspended') audioCtx.resume();
-  } catch {
-    // MediaElementSource can only be created once; ignore if already wired elsewhere
-  }
+function getMedia() {
+  try { return wavesurfer?.getMediaElement?.() || null; } catch { return null; }
+}
+
+function resetVolume() {
+  const m = getMedia();
+  if (m) m.volume = 1;
+  try { wavesurfer?.setVolume?.(1); } catch {}
 }
 
 function fadeJump(toTime) {
-  ensureGain();
-  const g = gainNode;
-  if (!g || !audioCtx) {
-    wavesurfer.setTime(toTime);
-    return;
-  }
-  const now = audioCtx.currentTime;
+  const m = getMedia();
   skipping = true;
-  try {
-    g.gain.cancelScheduledValues(now);
-    g.gain.setValueAtTime(g.gain.value, now);
-    g.gain.linearRampToValueAtTime(0.05, now + 0.02);
-  } catch {}
-  wavesurfer.setTime(toTime);
-  requestAnimationFrame(() => {
-    try {
-      const t = audioCtx.currentTime;
-      g.gain.cancelScheduledValues(t);
-      g.gain.setValueAtTime(0.05, t);
-      g.gain.linearRampToValueAtTime(1, t + 0.04);
-    } catch {}
+  const restore = () => {
+    if (m) m.volume = 1;
+    try { wavesurfer?.setVolume?.(1); } catch {}
     skipping = false;
-  });
+  };
+  try {
+    if (m) {
+      const start = m.volume || 1;
+      m.volume = Math.max(0.05, start * 0.15);
+    }
+  } catch {}
+  try { wavesurfer.setTime(toTime); } catch {}
+  // Failsafe: always restore volume shortly after seek
+  setTimeout(restore, 45);
 }
 
 function nextKeepStart(t, keepRanges) {
@@ -380,6 +365,8 @@ async function hardStop() {
     wavesurfer.pause();
     try { wavesurfer.setTime(wavesurfer.getCurrentTime()); } catch {}
   }
+  resetVolume();
+  setPlayWaiting(false);
   updatePlayBtn();
 }
 
@@ -392,9 +379,8 @@ function playRange(start, end, { preview = false } = {}) {
   if (!preview) stopSpecialPlayback();
   playMode = preview ? 'preview' : 'segment';
   stopAt = end;
-  wavesurfer.setTime(Math.max(0, start));
-  wavesurfer.play();
-  updatePlayBtn();
+  resetVolume();
+  safePlay(Math.max(0, start));
 }
 
 function playEscuchar(p) {
@@ -437,9 +423,8 @@ function playAsiQueda(p) {
     previewActive = false;
     return;
   }
-  wavesurfer.setTime(segs[0][0]);
-  wavesurfer.play();
-  updatePlayBtn();
+  resetVolume();
+  safePlay(segs[0][0]);
   scrollToItem(p.id);
 }
 
@@ -472,8 +457,9 @@ function startFullPreview(fromTime) {
   if (!lastKeepRanges.some(([a, b]) => start >= a - 0.01 && start < b)) {
     start = lastKeepRanges[0][0];
   }
+  resetVolume();
+  // Caller (checkbox/button) awaits safePlay; still set time here
   wavesurfer.setTime(start);
-  wavesurfer.play();
   updatePlayBtn();
 }
 
@@ -740,6 +726,75 @@ function bulkSet(predicate, value) {
   toast(`${n} marcados como ${value}`);
 }
 
+
+function setLoader(pct, text) {
+  const loader = $('audioLoader');
+  const bar = $('loaderBar');
+  const txt = $('loaderText');
+  const card = document.querySelector('.player-card');
+  if (loader) loader.hidden = false;
+  if (card) { card.classList.add('is-loading'); card.classList.remove('is-ready'); }
+  if (bar && pct != null) bar.style.width = `${Math.max(0, Math.min(100, pct))}%`;
+  if (txt && text) txt.textContent = text;
+}
+
+function setAudioReady(ok) {
+  audioReady = !!ok;
+  const card = document.querySelector('.player-card');
+  const loader = $('audioLoader');
+  ['btnPlay','btnStop','previewAll'].forEach((id) => {
+    const el = $(id);
+    if (el) el.disabled = !ok;
+  });
+  if (ok) {
+    if (loader) loader.hidden = true;
+    if (card) { card.classList.remove('is-loading'); card.classList.add('is-ready'); }
+    resetVolume();
+  }
+}
+
+function setPlayWaiting(on) {
+  const btn = $('btnPlay');
+  if (!btn) return;
+  btn.classList.toggle('is-waiting', !!on);
+  const spin = btn.querySelector('.btn-spin');
+  const label = btn.querySelector('.btn-label');
+  if (spin) spin.hidden = !on;
+  if (label) label.hidden = !!on;
+}
+
+async function safePlay(fromTime) {
+  if (!wavesurfer || !audioReady) {
+    toast('El audio aún se está cargando…');
+    return false;
+  }
+  setPlayWaiting(true);
+  resetVolume();
+  try {
+    if (fromTime != null) wavesurfer.setTime(Math.max(0, fromTime));
+    const media = getMedia();
+    if (media) {
+      media.muted = false;
+      media.volume = 1;
+    }
+    await wavesurfer.play();
+    // Confirm audible progress; if stuck, retry once
+    await new Promise((r) => setTimeout(r, 120));
+    if (!wavesurfer.isPlaying()) {
+      await wavesurfer.play();
+    }
+    return true;
+  } catch (e) {
+    console.error(e);
+    toast('No se pudo reproducir: ' + (e?.message || e));
+    return false;
+  } finally {
+    setPlayWaiting(false);
+    updatePlayBtn();
+  }
+}
+
+
 async function boot() {
   try {
     const res = await fetch('data/proposals.json');
@@ -754,7 +809,17 @@ async function boot() {
   initDefaults();
 
   regionPlugin = RegionsPlugin.create();
-  wavesurfer = WaveSurfer.create({
+
+  setLoader(0, 'Cargando audio… 0%');
+  setAudioReady(false);
+
+  // Optional precomputed peaks for instant waveform
+  try {
+    const pr = await fetch('data/peaks.json');
+    if (pr.ok) peaksData = await pr.json();
+  } catch {}
+
+  const wsOpts = {
     container: '#waveform',
     waveColor: '#3a4658',
     progressColor: '#5b9dff',
@@ -767,15 +832,35 @@ async function boot() {
     normalize: true,
     url: DATA.audio || 'audio.mp3',
     plugins: [regionPlugin],
+  };
+  if (peaksData?.peaks && peaksData?.duration) {
+    wsOpts.peaks = peaksData.peaks;
+    wsOpts.duration = peaksData.duration;
+  }
+
+  wavesurfer = WaveSurfer.create(wsOpts);
+  try {
+    const media = wavesurfer.getMediaElement();
+    if (media) {
+      media.preload = 'auto';
+      media.crossOrigin = 'anonymous';
+    }
+  } catch {}
+
+  wavesurfer.on('loading', (pct) => {
+    const p = Number(pct) || 0;
+    setLoader(p, `Cargando audio… ${Math.round(p)}%`);
   });
 
   wavesurfer.on('ready', () => {
     statusEl.style.display = 'none';
+    setLoader(100, 'Audio listo');
+    setAudioReady(true);
     rebuildRegions();
     renderList();
     updateCounts();
     $('timeLabel').textContent = `0:00 / ${fmt(wavesurfer.getDuration())}`;
-    try { ensureGain(); } catch {}
+    resetVolume();
     window.__review = {
       get ws() { return wavesurfer; },
       computeCuts, computeFinalKeepRanges, appliesProposal,
@@ -788,20 +873,25 @@ async function boot() {
         if (previewActive) lastKeepRanges = computeFinalKeepRanges();
       },
       get previewActive() { return previewActive; },
-      startFullPreview, playAsiQueda,
+      get audioReady() { return audioReady; },
+      startFullPreview, playAsiQueda, safePlay, resetVolume, getMedia,
     };
   });
 
   wavesurfer.on('error', (err) => {
+    setAudioReady(false);
+    setLoader(0, 'Error cargando audio');
     statusEl.className = 'error';
     statusEl.style.display = 'block';
     statusEl.textContent = 'Error de audio: ' + (err?.message || err);
+    const txt = $('loaderText');
+    if (txt) txt.textContent = 'Error al cargar el audio. Recarga la página.';
   });
 
   wavesurfer.on('audioprocess', onTimeUpdate);
   wavesurfer.on('timeupdate', onTimeUpdate);
-  wavesurfer.on('play', updatePlayBtn);
-  wavesurfer.on('pause', updatePlayBtn);
+  wavesurfer.on('play', () => { setPlayWaiting(false); updatePlayBtn(); resetVolume(); });
+  wavesurfer.on('pause', () => { setPlayWaiting(false); updatePlayBtn(); });
   wavesurfer.on('finish', () => {
     if (previewActive) {
       previewActive = false;
@@ -809,10 +899,11 @@ async function boot() {
       $('previewAll').checked = false;
       stopSkipLoop();
     }
+    setPlayWaiting(false);
     updatePlayBtn();
+    resetVolume();
   });
 
-  // If user seeks into a removed range during preview, jump out
   wavesurfer.on('interaction', () => {
     if (!previewActive) return;
     const t = wavesurfer.getCurrentTime();
@@ -828,25 +919,28 @@ async function boot() {
     if (p) playEscuchar(p);
   });
 
-  $('btnPlay').addEventListener('click', () => {
+  $('btnPlay').addEventListener('click', async () => {
     if (!wavesurfer) return;
+    resetVolume();
     if (wavesurfer.isPlaying()) {
       wavesurfer.pause();
-      if (playMode === 'preview') {
-        // pause but keep preview mode / checkbox so resume continues skipping
-      }
-    } else {
-      if ($('previewAll')?.checked) {
-        startFullPreview(wavesurfer.getCurrentTime());
-      } else {
-        playMode = null;
-        stopAt = null;
-        previewActive = false;
-        stopSkipLoop();
-        wavesurfer.play();
-      }
+      updatePlayBtn();
+      return;
     }
-    updatePlayBtn();
+    if (!audioReady) {
+      toast('Espera a que termine de cargar el audio…');
+      return;
+    }
+    if ($('previewAll')?.checked) {
+      startFullPreview(wavesurfer.getCurrentTime());
+      await safePlay();
+    } else {
+      playMode = null;
+      stopAt = null;
+      previewActive = false;
+      stopSkipLoop();
+      await safePlay();
+    }
   });
 
   $('btnStop').addEventListener('click', () => {
@@ -854,9 +948,19 @@ async function boot() {
     if (wavesurfer) wavesurfer.setTime(0);
   });
 
-  $('previewAll').addEventListener('change', (e) => {
-    if (e.target.checked) startFullPreview(0);
-    else hardStop();
+  $('previewAll').addEventListener('change', async (e) => {
+    resetVolume();
+    if (e.target.checked) {
+      if (!audioReady) {
+        e.target.checked = false;
+        toast('Espera a que termine de cargar el audio…');
+        return;
+      }
+      startFullPreview(0);
+      await safePlay();
+    } else {
+      hardStop();
+    }
   });
 
   $('btnCopy').addEventListener('click', copyDecisions);
