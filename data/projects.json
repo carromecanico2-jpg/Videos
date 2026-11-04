@@ -1,5 +1,5 @@
 {
-  "updatedAt": "2026-11-03T22:05:00-05:00",
+  "updatedAt": "2026-11-03T23:32:14-05:00",
   "style": {
     "title": "Estilo de edición (ZEPFILMS → canal nuevo)",
     "cutsPerMin": "20–23 cortes/min",
@@ -32,8 +32,10 @@
       },
       "media": {
         "cleanedAudio": "media/mary-cooper/audio_limpio.mp3",
-        "videoPreview": null,
-        "cleanedAudioDrive": "https://drive.google.com/file/d/1sCJ8TOnYqA_O58_KFjT-6OctLdU7Eufl/view?usp=drivesdk"
+        "videoPreview": "media/mary-cooper/video_preview_first30.mp4",
+        "cleanedAudioDrive": "https://drive.google.com/file/d/1sCJ8TOnYqA_O58_KFjT-6OctLdU7Eufl/view?usp=drivesdk",
+        "videoDrive": "https://drive.google.com/file/d/1n44l0W75Leg3xsC65svj0jb4-whCJ8h6/view?usp=drivesdk",
+        "videoPreviewDrive": "https://drive.google.com/file/d/1r-wdNbrPEvMyLSlr4jIZ7SrCHLy_CH9Z/view?usp=drivesdk"
       },
       "packaging": {
         "thumbnail": null,
@@ -65,17 +67,18 @@
         {
           "id": "clean_audio",
           "title": "Audio limpio — aprobar",
-          "status": "esperando_aprobacion",
+          "status": "aprobado",
           "approvable": true,
-          "detail": "Audio limpio listo (~6:23). Escúchalo aquí o en Drive y apruébalo o pide cambios.",
+          "detail": "Audio limpio aprobado (~6:23).",
           "link": "https://drive.google.com/file/d/1sCJ8TOnYqA_O58_KFjT-6OctLdU7Eufl/view?usp=drivesdk"
         },
         {
           "id": "edit",
           "title": "Edición de video",
-          "status": "pendiente",
+          "status": "esperando_aprobacion",
           "approvable": true,
-          "detail": "B-roll de la serie (<3 s), textos, música y efectos de sonido estilo ZEPFILMS. Vista previa cuando esté lista."
+          "detail": "Primeros 30 s de la edición listos (B-roll de la serie, textos, música y SFX estilo ZEPFILMS). Vista previa en el panel; MP4 1080p completo de estos 30 s en Drive. Aprobar o pedir cambios antes de montar el resto.",
+          "link": "https://drive.google.com/file/d/1n44l0W75Leg3xsC65svj0jb4-whCJ8h6/view?usp=drivesdk"
         },
         {
           "id": "packaging",
