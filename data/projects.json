@@ -1,5 +1,5 @@
 {
-  "updatedAt": "2026-11-04T15:08:51-05:00",
+  "updatedAt": "2026-11-04T15:13:10-05:00",
   "style": {
     "title": "Estilo de edición (ZEPFILMS → canal nuevo)",
     "cutsPerMin": "20–23 cortes/min",
@@ -34,7 +34,7 @@
         "cleanedAudio": "media/mary-cooper/audio_limpio.mp3",
         "videoPreview": "media/mary-cooper/video_preview_first30.mp4",
         "cleanedAudioDrive": "https://drive.google.com/file/d/1sCJ8TOnYqA_O58_KFjT-6OctLdU7Eufl/view?usp=drivesdk",
-        "videoDrive": "https://drive.google.com/file/d/1iuiGNxtoVSH44u-mnxnQ9TM-j18WN4Vt/view?usp=drivesdk",
+        "videoDrive": "https://drive.google.com/file/d/1ev0KPw0EA91-11Pzjn6SLjgCmw1o-maN/view?usp=drivesdk",
         "videoPreviewDrive": "https://drive.google.com/file/d/1r-wdNbrPEvMyLSlr4jIZ7SrCHLy_CH9Z/view?usp=drivesdk"
       },
       "packaging": {
@@ -77,8 +77,8 @@
           "title": "Edición de video",
           "status": "esperando_aprobacion",
           "approvable": true,
-          "detail": "Vista previa 30s v3 estilo ZEPFILMS: solo clips de video ~3 s (Mary/TBBT/YS) sincronizados con la VO; tipografía Anton blanca con sombra negra; watermark; SFX variados; sin imágenes fijas. Revisa y aprueba o pide cambios.",
-          "link": "https://drive.google.com/file/d/1iuiGNxtoVSH44u-mnxnQ9TM-j18WN4Vt/view?usp=drivesdk"
+          "detail": "Vista previa 30s v3 corregida: clips mal etiquetados (Mandy/Brenda) reemplazados por Mary real (Zoe Perry / Laurie Metcalf); textos RELIGIÓN y MAMÁ CRISTIANA visibles al momento de la palabra; tipografía Anton + tomas ~3 s. Revisa y aprueba o pide cambios.",
+          "link": "https://drive.google.com/file/d/1ev0KPw0EA91-11Pzjn6SLjgCmw1o-maN/view?usp=drivesdk"
         },
         {
           "id": "packaging",
