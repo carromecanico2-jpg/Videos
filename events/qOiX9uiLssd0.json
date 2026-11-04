@@ -1,0 +1,14 @@
+{
+  "source": "zepfilms-edit-panel",
+  "action": "test",
+  "note": "watcher-e2e-2",
+  "timestamp": "2026-11-04T04:20:22Z",
+  "ping": true,
+  "_ntfy": {
+    "id": "qOiX9uiLssd0",
+    "time": 1793766022,
+    "topic": "zepfilms-panel-5947e6bd6cb6e863",
+    "event": "message",
+    "source": "stream"
+  }
+}
