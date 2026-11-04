@@ -1,23 +1,55 @@
 {
   "title": "Guía de estilo de edición",
-  "subtitle": "Reglas ZEPFILMS aplicadas al canal nuevo",
+  "subtitle": "Reglas ZEPFILMS v2 (análisis últimos 10 videos + revisión visual)",
   "sections": [
     {
       "id": "tech",
       "title": "Formato y técnicos",
       "items": [
         "Resolución mínima 720p (ideal 1080p), 16:9",
-        "Loudness master ≈ −18 LUFS (Shorts un poco más hot, ~−17)",
-        "FPS 24–30"
+        "Loudness master ≈ −18 LUFS",
+        "FPS 24–30",
+        "4:3 fuente → pillarbox o fondo difuminado (no estirar)"
       ]
     },
     {
       "id": "pace",
       "title": "Ritmo de corte",
       "items": [
-        "≈ 20–23 cortes por minuto",
-        "Planos / B-roll de ~2.5–3 s (serie <3 s)",
-        "Cortes duros; casi sin wipes"
+        "Tomas de video real de ~2–4 s (objetivo ≈ 3 s) que coinciden literalmente con lo que dice la VO",
+        "~27–36 cortes/min en el gancho; cuerpo un poco más aireado",
+        "Cortes duros; casi sin wipes",
+        "Stills raros y siempre con zoom lento (Ken Burns)"
+      ]
+    },
+    {
+      "id": "footage",
+      "title": "Material visual",
+      "items": [
+        "SON VIDEOS, NO IMÁGENES — clips de la serie/película / BTS / archivo en movimiento",
+        "Cuando se nombra persona, año o show, debe verse en pantalla",
+        "Sin stock genérico estático como plano principal"
+      ]
+    },
+    {
+      "id": "type",
+      "title": "Tipografía",
+      "items": [
+        "Fuente: Anton Regular (Impact-like condensada) — /workspace/newchannel/fonts/Anton-Regular.ttf",
+        "Blanca, ALL CAPS, sombra negra dura abajo-derecha o outline grueso; sin caja",
+        "Centrada, tamaño medio-grande; aparece de golpe (~pop); dura 1–3 s",
+        "NO usar Liberation Sans / Arial",
+        "Sin subtítulos quemados"
+      ]
+    },
+    {
+      "id": "graphics",
+      "title": "Gráficos y transiciones",
+      "items": [
+        "Whoosh en muchos hard cuts; click/pop en textos",
+        "Glitch / film-burn ocasional; overlays VHS (REW, PAUSE) con scanlines",
+        "Gráfico rojo No/X para énfasis",
+        "Empieza directo en el gancho (sin intro de marca larga)"
       ]
     },
     {
@@ -26,26 +58,16 @@
       "items": [
         "Narración real del host; solo arreglar lo necesario",
         "Bed musical continuo bajo la VO",
-        "Sin silencios residuales en el master"
+        "SFX ~8–12 dB bajo el pico de VO"
       ]
     },
     {
-      "id": "sfx",
-      "title": "Efectos de sonido (estilo ZEPFILMS)",
+      "id": "brand",
+      "title": "Marca ZEPFILMS",
       "items": [
-        "Whoosh en ~30–50 % de los hard cuts",
-        "Click/pop en cada texto importante",
-        "Glitch en intro tipográfico y outro “SIGUE VIENDO”",
-        "SFX bajo la VO (whoosh ≈ −8 a −12 dB bajo pico de VO)"
-      ]
-    },
-    {
-      "id": "visual",
-      "title": "Visual",
-      "items": [
-        "Tipografía sans blanca limpia",
-        "B-roll de la serie/película, BTS, archivo — no stock genérico",
-        "Outro: plano B/N o desaturado + tipografía con aberración"
+        "Watermark: smiley verde circular (ojo monstruo) abajo-derecha todo el video",
+        "PNG: ref/analysis/zepfilms_logo.png",
+        "En el canal nuevo la marca puede omitirse; el ritmo y la tipografía sí se copian"
       ]
     },
     {
@@ -54,8 +76,8 @@
       "items": [
         "En el chat, manda el audio (enlace de Drive). El guion es opcional y ayuda a detectar retomas.",
         "Se carga el proyecto y queda lista la revisión de cortes.",
-        "Aprueba o pide cambios con los botones (se copia un mensaje para pegar en el chat).",
-        "Luego: audio limpio → edición → packaging clickbait → YouTube."
+        "Aprueba o pide cambios con los botones.",
+        "Luego: audio limpio → edición con clips de video ~3 s → packaging clickbait → YouTube."
       ]
     }
   ]
