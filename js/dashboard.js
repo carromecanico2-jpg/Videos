@@ -4,6 +4,7 @@ const STATUS_LABEL = {
   pendiente: 'Pendiente',
   en_progreso: 'En progreso',
   en_proceso: 'En proceso',
+  trabajando: 'Trabajando en tu cambio…',
   esperando_aprobacion: 'Esperando tu aprobación',
   aprobado: 'Aprobado',
   cambios_pedidos: 'Cambios pedidos',
@@ -11,7 +12,7 @@ const STATUS_LABEL = {
 };
 
 const STEP_ORDER = ['upload', 'cuts', 'clean_audio', 'edit', 'packaging', 'publish'];
-const POLL_MS = 60000;
+const POLL_MS = 20000;
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
@@ -81,11 +82,16 @@ function saveApprovals(data) { saveJSON(APPROVALS_KEY, data); }
 function loadDrafts() { return loadJSON(DRAFTS_KEY, []); }
 function saveDrafts(list) { saveJSON(DRAFTS_KEY, list); }
 
+
+function isWorkingStatus(status) {
+  return status === 'trabajando' || status === 'en_progreso' || status === 'en_proceso';
+}
 function statusClass(status) {
   return `status-${status || 'pendiente'}`;
 }
 function statusDot(status) {
   if (status === 'aprobado') return 'ok';
+  if (status === 'trabajando') return 'work';
   if (status === 'esperando_aprobacion' || status === 'en_progreso' || status === 'en_proceso' || status === 'cambios_pedidos') return 'warn';
   if (status === 'borrador') return 'draft';
   return '';
@@ -101,6 +107,7 @@ function stepRank(status) {
     borrador: 0,
     en_progreso: 1,
     en_proceso: 1,
+    trabajando: 1,
     esperando_aprobacion: 2,
     cambios_pedidos: 2,
     aprobado: 3,
@@ -275,8 +282,8 @@ async function applyStepDecision(project, step, kind, notes = '') {
 
   if (notifyResult.ok) {
     const msg = kind === 'approve'
-      ? 'Aprobado ✓. ZepFilms lo recibirá en unos minutos y seguirá con el siguiente paso.'
-      : 'Cambios pedidos ✓. ZepFilms lo recibirá en unos minutos.';
+      ? 'Recibido ✓ ZepFilms está trabajando en ello'
+      : 'Recibido ✓ ZepFilms está trabajando en ello';
     toast(msg, {
       undo: () => undoLastDecision(),
     });
@@ -330,7 +337,7 @@ function renderStep(project, step, index) {
   const key = approvalKey(project.id, step.id);
   const saved = loadApprovals()[key];
   const blockedMedia = step.approvable && stepNeedsMedia(step) && !stepHasRequiredMedia(project, step);
-  const showActions = step.approvable && project.source !== 'draft' && step.status !== 'aprobado' && status !== 'aprobado';
+  const showActions = step.approvable && project.source !== 'draft' && step.status !== 'aprobado' && status !== 'aprobado' && !isWorkingStatus(status) && !isWorkingStatus(step.status);
 
   let meta = '';
   if (step.id === 'cuts' && project.review) {
@@ -400,7 +407,7 @@ function renderStep(project, step, index) {
       <div class="step-card-body">
         <div class="step-card-head">
           <span class="step-num">${index + 1}</span>
-          <span class="status-badge ${statusClass(status)}">${escapeHtml(label)}</span>
+          <span class="status-badge ${statusClass(status)}${isWorkingStatus(status) ? ' status-working-pulse' : ''}">${escapeHtml(isWorkingStatus(status) ? 'Trabajando en tu cambio…' : label)}</span>
         </div>
         <h4 class="step-card-title">${escapeHtml(step.title)}</h4>
         ${step.detail ? `<p class="step-detail">${escapeHtml(step.detail)}</p>` : ''}
@@ -502,11 +509,13 @@ function renderHome() {
   $('#topbarTitle').textContent = 'Inicio';
   const list = allProjects();
   const cards = list.map((p) => {
-    const st = STATUS_LABEL[p.status] || p.status;
+    const st = isWorkingStatus(p.status)
+      ? 'Trabajando en tu cambio…'
+      : (STATUS_LABEL[p.status] || p.status);
     const { done, total, pct } = progressOf(p);
     const draftBadge = p.source === 'draft'
       ? `<span class="status-badge status-borrador">Borrador</span>`
-      : `<span class="status-badge ${statusClass(p.status)}">${escapeHtml(st)}</span>`;
+      : `<span class="status-badge ${statusClass(p.status)}${isWorkingStatus(p.status) ? ' status-working-pulse' : ''}">${escapeHtml(st)}</span>`;
     return `<a class="card card-link" href="#/p/${escapeHtml(p.slug)}">
       <div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start">
         <div>
@@ -569,7 +578,10 @@ function renderProject(project) {
   }
 
   const { done, total, pct } = progressOf(project);
-  const st = STATUS_LABEL[project.status] || project.status;
+  const st = isWorkingStatus(project.status)
+    ? 'Trabajando en tu cambio…'
+    : (STATUS_LABEL[project.status] || project.status);
+  const stClass = `${statusClass(project.status)}${isWorkingStatus(project.status) ? ' status-working-pulse' : ''}`;
   const driveUrl = project.drive?.folderUrl || '';
   const drivePill = driveUrl
     ? `<a class="pill-link drive-pill" href="${escapeHtml(driveUrl)}" target="_blank" rel="noopener" title="Abrir carpeta del proyecto en Drive">
@@ -584,7 +596,7 @@ function renderProject(project) {
         <p class="sub">${escapeHtml(project.subtitle || '')}</p>
       </div>
       <div class="project-head-right">
-        <span class="status-badge ${statusClass(project.status)}">${escapeHtml(st)}</span>
+        <span class="status-badge ${stClass}">${escapeHtml(st)}</span>
         ${drivePill}
       </div>
     </div>

@@ -1,5 +1,5 @@
 {
-  "updatedAt": "2026-11-03T23:32:14-05:00",
+  "updatedAt": "2026-11-04T09:38:31-05:00",
   "style": {
     "title": "Estilo de edición (ZEPFILMS → canal nuevo)",
     "cutsPerMin": "20–23 cortes/min",
@@ -19,7 +19,7 @@
       "slug": "mary-cooper",
       "title": "Mary Cooper (The Big Bang Theory / Young Sheldon)",
       "subtitle": "Nuevo canal (no cine)",
-      "status": "esperando_aprobacion",
+      "status": "trabajando",
       "createdAt": "2026-11-03",
       "review": {
         "path": "revision/mary-cooper/",
@@ -75,10 +75,11 @@
         {
           "id": "edit",
           "title": "Edición de video",
-          "status": "esperando_aprobacion",
+          "status": "trabajando",
           "approvable": true,
-          "detail": "Primeros 30 s de la edición listos (B-roll de la serie, textos, música y SFX estilo ZEPFILMS). Vista previa en el panel; MP4 1080p completo de estos 30 s en Drive. Aprobar o pedir cambios antes de montar el resto.",
-          "link": "https://drive.google.com/file/d/1n44l0W75Leg3xsC65svj0jb4-whCJ8h6/view?usp=drivesdk"
+          "detail": "Trabajando en tu cambio: más variedad de sonidos y edición más dinámica",
+          "link": "https://drive.google.com/file/d/1n44l0W75Leg3xsC65svj0jb4-whCJ8h6/view?usp=drivesdk",
+          "statusMessage": "Trabajando en tu cambio: más variedad de sonidos y edición más dinámica"
         },
         {
           "id": "packaging",

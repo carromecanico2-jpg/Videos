@@ -780,3 +780,34 @@ button.btn:disabled {
   cursor: pointer;
   padding: 0 4px;
 }
+
+/* Live working state — light Grok-style animated pill */
+.status-trabajando,
+.status-working-pulse {
+  background: #eef2ff;
+  color: #4338ca;
+  border-color: #c7d2fe;
+}
+.status-working-pulse::before,
+.status-trabajando::before {
+  background: #6366f1;
+  box-shadow: 0 0 0 0 rgba(99, 102, 241, 0.55);
+  animation: zep-work-pulse 1.4s ease-out infinite;
+}
+@keyframes zep-work-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(99, 102, 241, 0.55); opacity: 1; }
+  70% { box-shadow: 0 0 0 8px rgba(99, 102, 241, 0); opacity: 0.85; }
+  100% { box-shadow: 0 0 0 0 rgba(99, 102, 241, 0); opacity: 1; }
+}
+.step.is-trabajando .step-num,
+.step.is-en_progreso .step-num,
+.step.is-en_proceso .step-num {
+  background: #eef2ff;
+  color: #4338ca;
+  border-color: #c7d2fe;
+}
+.dot.work {
+  background: #6366f1;
+  box-shadow: 0 0 0 0 rgba(99, 102, 241, 0.5);
+  animation: zep-work-pulse 1.4s ease-out infinite;
+}
