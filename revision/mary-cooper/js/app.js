@@ -745,11 +745,6 @@ async function sendDecisionsToZep() {
     toast('Módulo de aviso no cargó');
     return;
   }
-  if (!window.ZepNotify.isConfigured()) {
-    toast('Conecta ZepFilms en Settings del panel');
-    setTimeout(() => { location.href = '../../#/settings'; }, 600);
-    return;
-  }
   const cuts = buildCutsNotifyPayload();
   const res = await window.ZepNotify.notify({
     projectSlug: 'mary-cooper',
@@ -758,12 +753,8 @@ async function sendDecisionsToZep() {
     note: cuts.summary || 'Decisiones de cortes guardadas desde la revisión',
     cuts,
   });
-  if (res.ok) toast('Enviado a ZepFilms ✓');
-  else if (res.needSettings) {
-    toast('Sin conectar — ve a Settings');
-    setTimeout(() => { location.href = '../../#/settings'; }, 700);
-  } else if (res.corsBlocked) toast('En cola (bloqueo CORS). Revisa Settings.');
-  else toast(res.message || 'Aviso en cola');
+  if (res.ok) toast('Enviado ✓. ZepFilms lo recibirá en unos minutos.');
+  else toast(res.message || 'Aviso en cola — se reenviará solo');
 }
 
 function bulkSet(predicate, value) {

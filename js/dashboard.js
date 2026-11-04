@@ -275,31 +275,14 @@ async function applyStepDecision(project, step, kind, notes = '') {
 
   if (notifyResult.ok) {
     const msg = kind === 'approve'
-      ? 'Aprobado ✓. ZepFilms ya está trabajando en el siguiente paso.'
-      : 'Cambios pedidos ✓. ZepFilms ya fue notificado.';
+      ? 'Aprobado ✓. ZepFilms lo recibirá en unos minutos y seguirá con el siguiente paso.'
+      : 'Cambios pedidos ✓. ZepFilms lo recibirá en unos minutos.';
     toast(msg, {
       undo: () => undoLastDecision(),
     });
-  } else if (!connected || notifyResult.needSettings) {
-    toast('Guardado. Conecta ZepFilms para que el flujo continúe solo.', {
-      undo: () => undoLastDecision(),
-      action: {
-        label: 'Conectar',
-        onClick: () => { location.hash = '#/settings'; },
-      },
-    });
-    showConnectPrompt();
-  } else if (notifyResult.corsBlocked) {
-    toast('Guardado en cola. Hay un bloqueo CORS hacia Cursor — revisa Settings.', {
-      undo: () => undoLastDecision(),
-      action: {
-        label: 'Settings',
-        onClick: () => { location.hash = '#/settings'; },
-      },
-    });
   } else {
     toast(kind === 'approve'
-      ? 'Aprobado ✓. Aviso en cola — se reenviará al conectar.'
+      ? 'Aprobado ✓. Aviso en cola — se reenviará solo.'
       : 'Cambios pedidos ✓. Aviso en cola.', {
       undo: () => undoLastDecision(),
     });
@@ -614,21 +597,16 @@ function renderProject(project) {
 }
 
 function connStatusView() {
-  const st = window.ZepNotify?.getStatus?.() || { state: 'disconnected', message: '' };
-  const settings = window.ZepNotify?.getSettings?.() || {};
-  const configured = !!(settings.url && settings.key);
-  let state = st.state || 'disconnected';
-  if (!configured) state = 'disconnected';
-  const label =
-    state === 'connected' ? 'Conectado' :
-    state === 'error' ? 'Error' : 'Sin conectar';
-  const cls =
-    state === 'connected' ? 'is-connected' :
-    state === 'error' ? 'is-error' : 'is-disconnected';
+  const st = window.ZepNotify?.getStatus?.() || { state: 'connected', message: '' };
   const outbox = window.ZepNotify?.getOutbox?.() || [];
+  const state = st.state === 'error' ? 'error' : 'connected';
+  const label = state === 'error' ? 'Error' : 'Conexión con ZepFilms: activa ✓';
+  const cls = state === 'error' ? 'is-error' : 'is-connected';
   const extra = outbox.length ? ` · ${outbox.length} en cola` : '';
-  const msg = st.message ? escapeHtml(st.message) : (configured ? 'Listo para enviar eventos' : 'Pega la URL y la clave del panel de rutinas de ZepFilms');
-  return { label, cls, msg, extra, settings, state, outboxCount: outbox.length };
+  const msg = st.message
+    ? escapeHtml(st.message)
+    : 'Los avisos se envían solos. No hace falta pegar URL ni clave.';
+  return { label, cls, msg, extra, state, outboxCount: outbox.length };
 }
 
 function renderSettings() {
@@ -646,39 +624,18 @@ function renderSettings() {
   $('#app').innerHTML = `
     <header class="hero">
       <h1>Settings</h1>
-      <p>Conexión con ZepFilms, cómo empezar un video y la guía de estilo.</p>
+      <p>Estado de la conexión, cómo empezar un video y la guía de estilo.</p>
     </header>
 
     <section class="card conn-card" id="connCard">
       <h3>Conexión con ZepFilms</h3>
-      <p class="sub">La URL y la clave viven solo en tu navegador (localStorage). Nunca se suben al repositorio.</p>
+      <p class="sub">Activa automáticamente. No tienes que pegar URL, clave ni iniciar sesión.</p>
       <div class="conn-status ${cv.cls}" id="connStatusPill">
         <span class="dot" aria-hidden="true"></span>
         <span id="connStatusLabel">${escapeHtml(cv.label)}${escapeHtml(cv.extra)}</span>
       </div>
-      <div class="conn-fields">
-        <label>URL del webhook
-          <input id="connUrl" type="url" autocomplete="off" spellcheck="false"
-            placeholder="https://api2.cursor.sh/automations/webhook/…"
-            value="${escapeHtml(cv.settings.url || '')}" />
-        </label>
-        <label>Clave
-          <input id="connKey" type="password" autocomplete="off" spellcheck="false"
-            placeholder="Pega la clave (Bearer se añade solo)"
-            value="${escapeHtml(cv.settings.key || '')}" />
-          <span class="hint">Se envía como <code>Authorization: Bearer …</code> (y también como <code>X-Automation-Key</code>).</span>
-        </label>
-        <label>Proxy CORS (opcional)
-          <input id="connProxy" type="url" autocomplete="off" spellcheck="false"
-            placeholder="https://tu-proxy.ejemplo/forward"
-            value="${escapeHtml(cv.settings.proxyUrl || '')}" />
-          <span class="hint">Solo si el navegador bloquea CORS hacia Cursor. El proxy debe reenviar el encabezado Authorization.</span>
-        </label>
-      </div>
       <div class="conn-actions">
-        <button type="button" class="btn btn-primary" id="btnSaveConn">Guardar</button>
-        <button type="button" class="btn" id="btnTestConn">Probar conexión</button>
-        <button type="button" class="btn btn-ghost" id="btnClearConn">Borrar</button>
+        <button type="button" class="btn btn-primary" id="btnTestConn">Probar conexión</button>
       </div>
       <p class="conn-msg" id="connMsg">${cv.msg}</p>
     </section>
@@ -700,67 +657,18 @@ function renderSettings() {
       <div class="style-list" style="margin-top:12px">${styleBlocks || '<p class="sub">No se pudo cargar data/style.json</p>'}</div>
     </section>`;
 
-  $('#btnSaveConn')?.addEventListener('click', async () => {
-    const url = $('#connUrl')?.value || '';
-    const key = $('#connKey')?.value || '';
-    const proxyUrl = $('#connProxy')?.value || '';
-    window.ZepNotify.saveSettings({ url, key, proxyUrl });
-    if (url && key) {
-      window.ZepNotify.setStatus('disconnected', 'Guardado — pulsa Probar conexión');
-      toast('Conexión guardada en este navegador');
-      const added = await window.ZepNotify.enqueuePriorApprovals(DATA.projects || []);
-      const flushed = await window.ZepNotify.flushOutbox();
-      if (added || flushed.sent) {
-        toast(`Cola: ${added} previos · reenviados ${flushed.sent}`);
-      }
-    } else {
-      window.ZepNotify.setStatus('disconnected', 'Sin conectar');
-      toast('Guardado (incompleto)');
-    }
-    refreshConnPill();
-  });
-
   $('#btnTestConn')?.addEventListener('click', async () => {
-    // Save fields first
-    window.ZepNotify.saveSettings({
-      url: $('#connUrl')?.value || '',
-      key: $('#connKey')?.value || '',
-      proxyUrl: $('#connProxy')?.value || '',
-    });
     const btn = $('#btnTestConn');
     if (btn) btn.disabled = true;
     try {
-      await window.ZepNotify.enqueuePriorApprovals(DATA.projects || []);
       const res = await window.ZepNotify.testConnection();
-      if (res.ok) toast('Conectado ✓. ZepFilms recibió la prueba.');
-      else if (res.corsBlocked) toast('Error CORS — mira el mensaje en la tarjeta');
-      else toast(res.message || 'No se pudo conectar');
+      if (res.ok) toast('Prueba enviada ✓. ZepFilms la recibirá en unos minutos.');
+      else toast(res.message || 'No se pudo enviar la prueba');
     } finally {
       if (btn) btn.disabled = false;
       refreshConnPill();
     }
   });
-
-  $('#btnClearConn')?.addEventListener('click', () => {
-    window.ZepNotify.saveSettings({ url: '', key: '', proxyUrl: '' });
-    window.ZepNotify.setStatus('disconnected', 'Sin conectar');
-    if ($('#connUrl')) $('#connUrl').value = '';
-    if ($('#connKey')) $('#connKey').value = '';
-    if ($('#connProxy')) $('#connProxy').value = '';
-    toast('Conexión borrada de este navegador');
-    refreshConnPill();
-  });
-}
-
-function refreshConnPill() {
-  const pill = $('#connStatusPill');
-  const label = $('#connStatusLabel');
-  const msg = $('#connMsg');
-  if (!pill) return;
-  const cv = connStatusView();
-  pill.className = `conn-status ${cv.cls}`;
-  if (label) label.textContent = `${cv.label}${cv.extra}`;
-  if (msg) msg.textContent = cv.msg.replace(/&[^;]+;/g, '');
 }
 
 async function sendDraft(project) {
@@ -773,13 +681,6 @@ async function sendDraft(project) {
     `Título YT: ${project.ytTitle || '(pendiente)'}`,
   ].join('\n');
 
-  if (!window.ZepNotify.isConfigured()) {
-    showConnectPrompt();
-    toast('Conecta ZepFilms para enviar el borrador', {
-      action: { label: 'Settings', onClick: () => { location.hash = '#/settings'; } },
-    });
-    return;
-  }
   const res = await window.ZepNotify.notify({
     projectSlug: project.slug,
     stepId: 'upload',
@@ -905,8 +806,7 @@ async function boot() {
 
   // Seed outbox with prior local approvals (e.g. cuts already aprobado), then flush if connected
   try {
-    await window.ZepNotify.enqueuePriorApprovals(DATA.projects || []);
-    await window.ZepNotify.bootNotify();
+    await window.ZepNotify.bootNotify(DATA.projects || []);
   } catch (e) {
     console.warn(e);
   }

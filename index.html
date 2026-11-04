@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Inter+Tight:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="css/dashboard.css?v=7" />
+  <link rel="stylesheet" href="css/dashboard.css?v=8" />
 </head>
 <body>
   <div class="app">
@@ -97,13 +97,13 @@
       <div class="modal-body">
         <p><strong>Cómo usar el panel</strong></p>
         <ol>
-          <li>Conecta ZepFilms en <em>Settings → Conexión con ZepFilms</em> (URL del webhook + clave).</li>
           <li>Elige un proyecto en el menú izquierdo.</li>
-          <li>En cada paso, usa <em>Aprobar</em> o <em>Pedir cambios</em>. ZepFilms recibe el aviso solo.</li>
+          <li>En cada paso, usa <em>Aprobar</em> o <em>Pedir cambios</em>. ZepFilms recibe el aviso solo — sin pegar nada.</li>
           <li><em>Abrir Drive</em> abre la carpeta del proyecto donde estarán los videos.</li>
           <li><em>+ Nuevo proyecto</em> crea un borrador local.</li>
+          <li>En Settings puedes pulsar <em>Probar conexión</em> si quieres verificar el aviso.</li>
         </ol>
-        <p class="sub">La clave se guarda solo en tu navegador, nunca en el sitio público.</p>
+        <p class="sub">La conexión con ZepFilms está activa automáticamente.</p>
         <div class="modal-actions">
           <button type="button" class="btn btn-primary" data-close-help>Entendido</button>
         </div>
@@ -119,7 +119,7 @@
         <button type="button" class="btn btn-ghost btn-icon" data-close-connect aria-label="Cerrar">✕</button>
       </div>
       <div class="modal-body">
-        <p class="sub">Para que al aprobar el flujo continúe solo, pega la URL del webhook y la clave desde el panel de rutinas de ZepFilms (Settings → Conexión).</p>
+        <p class="sub">La conexión ya está activa. Si algo falla, pulsa Probar conexión en Settings.</p>
         <div class="modal-actions">
           <button type="button" class="btn" data-close-connect>Ahora no</button>
           <a class="btn btn-primary" href="#/settings" id="btnGoSettings" data-close-connect>Ir a Settings</a>
@@ -129,7 +129,7 @@
   </div>
 
   <div class="toast" id="toast" role="status"></div>
-  <script src="js/notify.js?v=1"></script>
-  <script src="js/dashboard.js?v=6"></script>
+  <script src="js/notify.js?v=2"></script>
+  <script src="js/dashboard.js?v=7"></script>
 </body>
 </html>

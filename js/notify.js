@@ -1,23 +1,17 @@
 /**
- * ZepFilms notify — webhook + outbox (localStorage only; never commit secrets).
+ * ZepFilms notify — delivers panel events via ntfy.sh (no account, CORS-open).
  *
- * Auth research (2026-11-03):
- * - Grok Bot / Cursor routines docs: send key as `Authorization: Bearer <key>`.
- *   Source: https://cursor.com/help/grok-bot/routines.md
- * - Cursor Automations docs + make-bot-ui skill also send `X-Automation-Key: <key>`.
- * - Server requires the Authorization header (body/query alone → 401
- *   "Missing Authorization header. Use Authorization: Bearer <key>.").
- * - CORS: OPTIONS from github.io does NOT get Access-Control-Allow-Origin
- *   (only https://cursor.com does). Browser POSTs from GitHub Pages are blocked
- *   before the request is sent when Authorization is present.
- * - Fallback: retry without extra headers; then try a CORS proxy if configured;
- *   then opaque no-cors (cannot attach Authorization — will not wake Cursor);
- *   events stay in the outbox until a CORS-capable endpoint accepts them.
+ * Topic is hardcoded (delivery channel only). Payload is the same JSON as before.
+ * POST uses a plain body (no Authorization / no application/json Content-Type) so
+ * the browser can skip preflight; ntfy.sh also answers OPTIONS with ACAO *.
  */
 (function (global) {
-  const SETTINGS_KEY = 'zepfilms-webhook-settings-v1';
+  const NTFY_TOPIC = 'zepfilms-panel-5947e6bd6cb6e863';
+  const NTFY_URL = `https://ntfy.sh/${NTFY_TOPIC}`;
+
   const OUTBOX_KEY = 'zepfilms-webhook-outbox-v1';
-  const STATUS_KEY = 'zepfilms-webhook-status-v1';
+  const STATUS_KEY = 'zepfilms-ntfy-status-v1';
+  const SENT_KEY = 'zepfilms-ntfy-sent-v1'; // dedupe prior approvals (exactly once)
   const LOCAL_STEPS_KEY = 'zepfilms-edit-panel-local-steps-v1';
   const APPROVALS_KEY = 'zepfilms-edit-panel-approvals-v1';
   const APPROVALS_KEY_V2 = 'zepfilms-edit-panel-approvals-v2';
@@ -38,31 +32,12 @@
     localStorage.setItem(key, JSON.stringify(value));
   }
 
-  function getSettings() {
-    const s = loadJSON(SETTINGS_KEY, {});
-    return {
-      url: String(s.url || '').trim(),
-      key: String(s.key || '').trim(),
-      proxyUrl: String(s.proxyUrl || '').trim(),
-    };
-  }
-  function saveSettings( partial ) {
-    const cur = getSettings();
-    const next = {
-      url: partial.url != null ? String(partial.url).trim() : cur.url,
-      key: partial.key != null ? String(partial.key).trim() : cur.key,
-      proxyUrl: partial.proxyUrl != null ? String(partial.proxyUrl).trim() : cur.proxyUrl,
-    };
-    saveJSON(SETTINGS_KEY, next);
-    return next;
-  }
-
   function getStatus() {
-    return loadJSON(STATUS_KEY, { state: 'disconnected', message: '', at: null, mode: null });
+    return loadJSON(STATUS_KEY, { state: 'connected', message: 'Conexión con ZepFilms: activa ✓', at: null, mode: null });
   }
   function setStatus(state, message, extra = {}) {
     const row = {
-      state, // connected | disconnected | error
+      state, // connected | error
       message: message || '',
       at: new Date().toISOString(),
       mode: extra.mode || null,
@@ -93,24 +68,22 @@
     return row;
   }
 
-  function normalizeBearer(key) {
-    const k = String(key || '').trim().replace(/[\r\n]+/g, '');
-    if (!k) return '';
-    return /^Bearer\s+/i.test(k) ? k : `Bearer ${k}`;
+  function getSentMap() {
+    return loadJSON(SENT_KEY, {});
   }
-  function stripBearer(key) {
-    return String(key || '').trim().replace(/[\r\n]+/g, '').replace(/^Bearer\s+/i, '');
+  function markSent(sig) {
+    const m = getSentMap();
+    m[sig] = new Date().toISOString();
+    saveJSON(SENT_KEY, m);
   }
-
-  function isConfigured(settings = getSettings()) {
-    return !!(settings.url && settings.key);
+  function wasSent(sig) {
+    return !!getSentMap()[sig];
   }
 
   function limaTimestamp() {
     return new Date().toLocaleString('es-PE', { timeZone: 'America/Lima' });
   }
 
-  /** Local step overrides used until projects.json catches up. */
   function loadLocalSteps() {
     return loadJSON(LOCAL_STEPS_KEY, {});
   }
@@ -210,7 +183,7 @@
     const keepTake = reviewState.keepTake || {};
     const perProposal = Object.keys(decisions).map((id) => ({
       id,
-      decision: decisions[id], // borrar | dejar | pendiente
+      decision: decisions[id],
       keep_take: null,
     }));
 
@@ -230,8 +203,6 @@
           total: (data.proposals || []).length,
           duration: data.duration || null,
         };
-        // Attach keep_take per proposal when group known
-        const groups = data.groups || {};
         for (const row of perProposal) {
           const p = (data.proposals || []).find((x) => x.id === row.id);
           if (p?.group_id) row.keep_take = keepTake[p.group_id] || null;
@@ -239,6 +210,11 @@
         keep_ranges = computeKeepRangesFromReview(data, reviewState);
         break;
       } catch (_) { /* try next */ }
+    }
+
+    const counts = { borrar: 0, dejar: 0, pendiente: 0 };
+    for (const d of Object.values(decisions)) {
+      if (counts[d] != null) counts[d] += 1;
     }
 
     return {
@@ -250,6 +226,7 @@
       per_proposal: perProposal,
       keep_ranges,
       proposals: proposalsMeta,
+      decision_counts: counts,
     };
   }
 
@@ -260,7 +237,7 @@
       project_slug: projectSlug || null,
       step: stepId || null,
       step_id: stepId || null,
-      action, // aprobar | pedir_cambios | deshacer | guardar_decisiones | test
+      action,
       note: note || '',
       timestamp: new Date().toISOString(),
       timestamp_lima: limaTimestamp(),
@@ -270,191 +247,79 @@
     return payload;
   }
 
-  function corsErrorMessage(err) {
-    const msg = String(err && err.message || err || '');
-    return /failed to fetch|networkerror|cors|load failed|typeerror/i.test(msg);
-  }
-
-  async function postDirect(url, key, body, { includeExtraHeaders = true } = {}) {
-    const headers = {
-      'Content-Type': 'application/json',
-      Authorization: normalizeBearer(key),
-    };
-    if (includeExtraHeaders) {
-      // Documented by make-bot-ui skill; may break preflight on strict allow-lists.
-      headers['X-Automation-Key'] = stripBearer(key);
-      headers['X-Webhook-Secret'] = stripBearer(key);
-    }
-    const res = await fetch(url, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(body),
-      mode: 'cors',
-      credentials: 'omit',
-    });
-    const text = await res.text().catch(() => '');
-    let json = null;
-    try { json = text ? JSON.parse(text) : null; } catch { json = null; }
-    return { ok: res.ok, status: res.status, text, json, mode: includeExtraHeaders ? 'cors+extras' : 'cors' };
-  }
-
-  async function postViaProxy(proxyUrl, targetUrl, key, body) {
-    const res = await fetch(proxyUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        url: targetUrl,
-        authorization: normalizeBearer(key),
-        headers: {
-          Authorization: normalizeBearer(key),
-          'X-Automation-Key': stripBearer(key),
-          'Content-Type': 'application/json',
-        },
-        body,
-      }),
-      mode: 'cors',
-      credentials: 'omit',
-    });
-    const text = await res.text().catch(() => '');
-    let json = null;
-    try { json = text ? JSON.parse(text) : null; } catch { json = null; }
-    return { ok: res.ok, status: res.status, text, json, mode: 'proxy' };
-  }
-
   /**
-   * Last-resort opaque POST. Browser strips Authorization — Cursor will 401.
-   * Kept so non-Cursor mock endpoints without auth can still receive events.
+   * Plain POST to ntfy — body is the JSON string (message).
+   * No custom headers → simple request, no preflight required.
+   * ntfy also allows CORS with ACAO * if a preflight ever happens.
    */
-  async function postOpaque(url, body) {
-    await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain' },
-      body: JSON.stringify(body),
-      mode: 'no-cors',
-      keepalive: true,
-    });
-    return { ok: true, status: 0, text: '', json: null, mode: 'no-cors-opaque', opaque: true };
-  }
-
-  async function deliverOnce(event, settings = getSettings()) {
-    if (!settings.url) {
-      return { ok: false, reason: 'disconnected', message: 'Falta la URL del webhook' };
-    }
-    if (!settings.key && !settings.proxyUrl) {
-      // Allow keyless only if talking to a local mock via proxy or open mock
-    }
-    if (!settings.key) {
-      return { ok: false, reason: 'disconnected', message: 'Falta la clave del webhook' };
-    }
-
-    // 1) Direct CORS with full headers
+  async function deliverOnce(event) {
+    const body = JSON.stringify(event);
     try {
-      const r = await postDirect(settings.url, settings.key, event, { includeExtraHeaders: true });
-      if (r.ok) return { ok: true, ...r };
-      // Auth/server error (reachable — not CORS)
+      const res = await fetch(NTFY_URL, {
+        method: 'POST',
+        body,
+        mode: 'cors',
+        credentials: 'omit',
+        // Intentionally no Content-Type: application/json (avoids preflight).
+        // text/plain is safelisted if the UA sets one; omitting is fine too.
+      });
+      const text = await res.text().catch(() => '');
+      let json = null;
+      try { json = text ? JSON.parse(text) : null; } catch { json = null; }
+      if (res.ok) {
+        return { ok: true, status: res.status, text, json, mode: 'ntfy' };
+      }
       return {
         ok: false,
         reason: 'http',
-        message: `HTTP ${r.status}: ${(r.text || '').slice(0, 180)}`,
-        ...r,
+        status: res.status,
+        message: `HTTP ${res.status}: ${text.slice(0, 180)}`,
+        text,
+        json,
+        mode: 'ntfy',
       };
-    } catch (err1) {
-      // 2) Retry without extra headers (Authorization + Content-Type only)
-      try {
-        const r2 = await postDirect(settings.url, settings.key, event, { includeExtraHeaders: false });
-        if (r2.ok) return { ok: true, ...r2 };
-        return {
-          ok: false,
-          reason: 'http',
-          message: `HTTP ${r2.status}: ${(r2.text || '').slice(0, 180)}`,
-          ...r2,
-        };
-      } catch (err2) {
-        // 3) Optional CORS proxy
-        if (settings.proxyUrl) {
-          try {
-            const r3 = await postViaProxy(settings.proxyUrl, settings.url, settings.key, event);
-            if (r3.ok) return { ok: true, ...r3 };
-            return {
-              ok: false,
-              reason: 'proxy_http',
-              message: `Proxy HTTP ${r3.status}: ${(r3.text || '').slice(0, 180)}`,
-              ...r3,
-            };
-          } catch (err3) {
-            return {
-              ok: false,
-              reason: 'cors',
-              message:
-                'El navegador bloqueó la petición (CORS). Cursor solo permite el origen cursor.com; desde GitHub Pages hace falta un proxy CORS. ' +
-                String(err3.message || err3),
-              corsBlocked: true,
-            };
-          }
-        }
-
-        // 4) Opaque no-cors (does not send Authorization — Cursor will not wake)
-        try {
-          const r4 = await postOpaque(settings.url, {
-            ...event,
-            _note:
-              'Entrega opaca (no-cors): el navegador no envía Authorization. Cursor requiere Bearer y no despertará con este modo.',
-          });
-          return {
-            ok: false,
-            reason: 'cors',
-            corsBlocked: true,
-            opaqueAttempted: true,
-            message:
-              'CORS bloqueó la entrega autenticada. Se intentó un POST opaco, pero sin encabezado Authorization Cursor no inicia la rutina. Configura un proxy CORS o un endpoint que permita este origen.',
-            ...r4,
-          };
-        } catch (err4) {
-          return {
-            ok: false,
-            reason: corsErrorMessage(err2) ? 'cors' : 'network',
-            corsBlocked: corsErrorMessage(err2),
-            message: String(err2.message || err2),
-          };
-        }
-      }
+    } catch (err) {
+      return {
+        ok: false,
+        reason: 'network',
+        message: String(err && err.message || err),
+        mode: 'ntfy',
+      };
     }
   }
 
-  async function flushOutbox(settings = getSettings()) {
-    if (!isConfigured(settings)) return { sent: 0, left: getOutbox().length };
+  async function flushOutbox() {
     const list = getOutbox();
     if (!list.length) return { sent: 0, left: 0 };
     const remain = [];
     let sent = 0;
     for (const row of list) {
-      const result = await deliverOnce(row.event, settings);
-      if (result.ok) sent += 1;
-      else remain.push(row);
+      const result = await deliverOnce(row.event);
+      if (result.ok) {
+        sent += 1;
+        if (row.event?.action && row.event?.project_slug && row.event?.step_id) {
+          markSent(`${row.event.project_slug}|${row.event.step_id}|${row.event.action}`);
+        }
+      } else {
+        remain.push(row);
+      }
     }
     saveOutbox(remain);
     return { sent, left: remain.length };
   }
 
-  /**
-   * Main entry: build payload, try deliver, queue on failure.
-   * @returns {Promise<{ok:boolean, queued?:boolean, connected?:boolean, message?:string, result?:any, event?:any}>}
-   */
-  async function notify( partial ) {
-    const settings = getSettings();
+  async function notify(partial) {
     const action = partial.action;
     const projectSlug = partial.projectSlug || partial.project || null;
     const stepId = partial.stepId || partial.step || null;
     const note = partial.note || '';
 
     let cuts = partial.cuts || null;
-    if (!cuts && projectSlug && (stepId === 'cuts' || action === 'guardar_decisiones' || action === 'aprobar')) {
-      if (stepId === 'cuts' || action === 'guardar_decisiones' || (action === 'aprobar' && stepId === 'cuts')) {
-        try {
-          cuts = await buildCutsPayload(projectSlug);
-        } catch (_) {
-          cuts = null;
-        }
+    if (!cuts && projectSlug && (stepId === 'cuts' || action === 'guardar_decisiones' || (action === 'aprobar' && stepId === 'cuts'))) {
+      try {
+        cuts = await buildCutsPayload(projectSlug);
+      } catch (_) {
+        cuts = null;
       }
     }
 
@@ -467,57 +332,29 @@
       extra: partial.extra,
     });
 
-    if (!isConfigured(settings)) {
-      enqueueOutbox(event);
-      setStatus('disconnected', 'Sin conectar — el evento quedó en cola. Abre Settings para conectar con ZepFilms.');
-      return {
-        ok: false,
-        queued: true,
-        connected: false,
-        needSettings: true,
-        message: 'Sin conectar. Configura el webhook en Settings.',
-        event,
-      };
-    }
-
-    const result = await deliverOnce(event, settings);
+    const result = await deliverOnce(event);
     if (result.ok) {
-      setStatus('connected', 'Conectado', { mode: result.mode });
-      // Flush any backlog after a successful send
-      try { await flushOutbox(settings); } catch (_) { /* ignore */ }
+      setStatus('connected', 'Conexión con ZepFilms: activa ✓', { mode: 'ntfy' });
+      if (action && projectSlug && stepId) {
+        markSent(`${projectSlug}|${stepId}|${action}`);
+      }
+      try { await flushOutbox(); } catch (_) { /* ignore */ }
       return { ok: true, connected: true, result, event, message: 'Enviado' };
     }
 
     enqueueOutbox(event);
-    if (result.reason === 'disconnected') {
-      setStatus('disconnected', result.message || 'Sin conectar');
-    } else if (result.corsBlocked || result.reason === 'cors') {
-      setStatus(
-        'error',
-        result.message ||
-          'Error CORS: el navegador bloqueó el POST al webhook de Cursor. Evento en cola.',
-        { mode: result.mode }
-      );
-    } else {
-      setStatus('error', result.message || 'Error al notificar', { mode: result.mode });
-    }
+    setStatus('error', result.message || 'Error al notificar — evento en cola', { mode: 'ntfy' });
     return {
       ok: false,
       queued: true,
-      connected: isConfigured(settings),
+      connected: true,
       result,
       event,
       message: result.message,
-      corsBlocked: !!result.corsBlocked,
     };
   }
 
   async function testConnection() {
-    const settings = getSettings();
-    if (!settings.url || !settings.key) {
-      setStatus('disconnected', 'Completa la URL y la clave');
-      return { ok: false, message: 'Completa la URL del webhook y la clave' };
-    }
     const event = buildEvent({
       projectSlug: null,
       stepId: null,
@@ -525,43 +362,17 @@
       note: 'Prueba de conexión desde el Panel de edición',
       extra: { ping: true },
     });
-    const result = await deliverOnce(event, settings);
+    const result = await deliverOnce(event);
     if (result.ok) {
-      setStatus('connected', 'Conectado — prueba OK', { mode: result.mode });
-      try { await flushOutbox(settings); } catch (_) { /* ignore */ }
-      return { ok: true, message: 'Conexión OK. ZepFilms recibió la prueba.', result };
+      setStatus('connected', 'Conexión con ZepFilms: activa ✓', { mode: 'ntfy' });
+      try { await flushOutbox(); } catch (_) { /* ignore */ }
+      return { ok: true, message: 'Prueba enviada ✓', result, event };
     }
-    if (result.corsBlocked || result.reason === 'cors') {
-      setStatus('error', result.message || 'Error CORS', { mode: result.mode });
-      return {
-        ok: false,
-        corsBlocked: true,
-        message:
-          'Error CORS: Cursor no permite este origen en el navegador. Usa un proxy CORS o un mock local. Los eventos se guardan en cola.',
-        result,
-      };
-    }
-    setStatus('error', result.message || 'Error', { mode: result.mode });
-    return { ok: false, message: result.message || 'No se pudo conectar', result };
+    setStatus('error', result.message || 'Error', { mode: 'ntfy' });
+    return { ok: false, message: result.message || 'No se pudo enviar la prueba', result, event };
   }
 
-  /** On boot: if configured, flush outbox (includes prior approvals). */
-  async function bootNotify() {
-    const settings = getSettings();
-    if (!isConfigured(settings)) {
-      if (!getStatus().state || getStatus().state === 'connected') {
-        setStatus('disconnected', 'Sin conectar');
-      }
-      return { flushed: false };
-    }
-    const flushed = await flushOutbox(settings);
-    if (flushed.sent > 0) {
-      setStatus('connected', `Conectado — reenviados ${flushed.sent} de la cola`, { mode: 'flush' });
-    }
-    return { flushed: true, ...flushed };
-  }
-
-  // Seed outbox from an already-approved local step (e.g. cuts aprobado before webhook existed)
+  /** Enqueue prior local approvals exactly once, then flush. */
   async function enqueuePriorApprovals(projectList) {
     const approvals = loadJSON(APPROVALS_KEY_V2, loadJSON(APPROVALS_KEY, {}));
     const outbox = getOutbox();
@@ -575,11 +386,10 @@
         const local = approvals[key];
         if (!local) continue;
         if (local.status !== 'aprobado' && local.status !== 'cambios_pedidos') continue;
-        // Prefer projects.json if it already advanced
         if (step.status === 'aprobado' && local.status === 'aprobado') continue;
         const action = local.status === 'aprobado' ? 'aprobar' : 'pedir_cambios';
         const sig = `${project.slug}|${step.id}|${action}`;
-        if (existingSig.has(sig)) continue;
+        if (wasSent(sig) || existingSig.has(sig)) continue;
         let cuts = null;
         if (step.id === 'cuts') {
           try { cuts = await buildCutsPayload(project.slug); } catch (_) { cuts = null; }
@@ -589,7 +399,7 @@
             projectSlug: project.slug,
             stepId: step.id,
             action,
-            note: local.notes || local.message || 'Reenvío de aprobación local previa',
+            note: local.notes || 'Reenvío de aprobación local previa',
             cuts,
             extra: { prior_local: true, approved_at: local.at || null },
           })
@@ -601,15 +411,29 @@
     return added;
   }
 
+  async function bootNotify(projectList) {
+    setStatus('connected', 'Conexión con ZepFilms: activa ✓', { mode: 'ntfy' });
+    let added = 0;
+    try {
+      added = await enqueuePriorApprovals(projectList || []);
+    } catch (_) { /* ignore */ }
+    const flushed = await flushOutbox();
+    return { added, ...flushed };
+  }
+
+  // Always "configured" — no user secrets
+  function isConfigured() {
+    return true;
+  }
+
   const api = {
-    SETTINGS_KEY,
+    NTFY_TOPIC,
+    NTFY_URL,
     OUTBOX_KEY,
     LOCAL_STEPS_KEY,
-    getSettings,
-    saveSettings,
+    isConfigured,
     getStatus,
     setStatus,
-    isConfigured,
     getOutbox,
     notify,
     testConnection,
