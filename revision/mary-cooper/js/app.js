@@ -694,22 +694,76 @@ function downloadDecisions() {
   a.click();
   URL.revokeObjectURL(a.href);
   toast('Descarga iniciada');
+  // Also notify (non-blocking) so ZepFilms gets the same payload
+  try {
+    if (window.ZepNotify?.isConfigured?.()) {
+      const cuts = buildCutsNotifyPayload();
+      window.ZepNotify.notify({
+        projectSlug: 'mary-cooper',
+        stepId: 'cuts',
+        action: 'guardar_decisiones',
+        note: 'decisiones.json descargado + enviado',
+        cuts,
+      }).then((res) => {
+        if (res.ok) toast('También avisamos a ZepFilms ✓');
+      }).catch(() => {});
+    }
+  } catch (_) { /* ignore */ }
 }
 
-async function copyDecisions() {
-  const text = buildCopyText();
-  try {
-    await navigator.clipboard.writeText(text);
-    toast('Decisiones copiadas');
-  } catch {
-    const ta = document.createElement('textarea');
-    ta.value = text;
-    document.body.appendChild(ta);
-    ta.select();
-    document.execCommand('copy');
-    ta.remove();
-    toast('Decisiones copiadas');
+function buildCutsNotifyPayload() {
+  const dur = wavesurfer?.getDuration?.() || DATA?.duration || 0;
+  const keep_ranges = computeFinalKeepRanges(dur).map(([a, b]) => ({
+    start: Math.round(a * 1000) / 1000,
+    end: Math.round(b * 1000) / 1000,
+  }));
+  return {
+    available: true,
+    storageKey: STORAGE_KEY,
+    decisions: { ...decisions },
+    keepTake: { ...keepTake },
+    per_proposal: Object.keys(decisions).map((id) => {
+      const p = DATA.proposals.find((x) => x.id === id);
+      return {
+        id,
+        decision: decisions[id],
+        keep_take: p?.group_id ? keepTake[p.group_id] || null : null,
+      };
+    }),
+    keep_ranges,
+    proposals: {
+      total: (DATA.proposals || []).length,
+      duration: dur,
+    },
+    summary: buildCopyText(),
+  };
+}
+
+async function sendDecisionsToZep() {
+  saveState();
+  if (!window.ZepNotify) {
+    toast('Módulo de aviso no cargó');
+    return;
   }
+  if (!window.ZepNotify.isConfigured()) {
+    toast('Conecta ZepFilms en Settings del panel');
+    setTimeout(() => { location.href = '../../#/settings'; }, 600);
+    return;
+  }
+  const cuts = buildCutsNotifyPayload();
+  const res = await window.ZepNotify.notify({
+    projectSlug: 'mary-cooper',
+    stepId: 'cuts',
+    action: 'guardar_decisiones',
+    note: cuts.summary || 'Decisiones de cortes guardadas desde la revisión',
+    cuts,
+  });
+  if (res.ok) toast('Enviado a ZepFilms ✓');
+  else if (res.needSettings) {
+    toast('Sin conectar — ve a Settings');
+    setTimeout(() => { location.href = '../../#/settings'; }, 700);
+  } else if (res.corsBlocked) toast('En cola (bloqueo CORS). Revisa Settings.');
+  else toast(res.message || 'Aviso en cola');
 }
 
 function bulkSet(predicate, value) {
@@ -963,7 +1017,7 @@ async function boot() {
     }
   });
 
-  $('btnCopy').addEventListener('click', copyDecisions);
+  $('btnSendZep')?.addEventListener('click', sendDecisionsToZep);
   $('btnDownload').addEventListener('click', downloadDecisions);
 
   document.querySelectorAll('.filters .chip').forEach((chip) => {

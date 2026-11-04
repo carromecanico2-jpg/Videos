@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Inter+Tight:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="css/dashboard.css?v=6" />
+  <link rel="stylesheet" href="css/dashboard.css?v=7" />
 </head>
 <body>
   <div class="app">
@@ -87,7 +87,6 @@
     </div>
   </div>
 
-  
   <div class="modal" id="modalHelp" hidden>
     <div class="modal-backdrop" data-close-help></div>
     <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="helpTitle">
@@ -98,13 +97,13 @@
       <div class="modal-body">
         <p><strong>Cómo usar el panel</strong></p>
         <ol>
+          <li>Conecta ZepFilms en <em>Settings → Conexión con ZepFilms</em> (URL del webhook + clave).</li>
           <li>Elige un proyecto en el menú izquierdo.</li>
-          <li>En cada paso, usa <em>Aprobar</em> o <em>Pedir cambios</em>. El estado se guarda en tu navegador.</li>
-          <li>Al aprobar se copia un mensaje: pégalo en el chat con ZepFilms.</li>
+          <li>En cada paso, usa <em>Aprobar</em> o <em>Pedir cambios</em>. ZepFilms recibe el aviso solo.</li>
           <li><em>Abrir Drive</em> abre la carpeta del proyecto donde estarán los videos.</li>
-          <li><em>+ Nuevo proyecto</em> crea un borrador local que puedes enviar por el chat.</li>
+          <li><em>+ Nuevo proyecto</em> crea un borrador local.</li>
         </ol>
-        <p class="sub">Si el portapapeles falla, verás el texto para copiarlo a mano.</p>
+        <p class="sub">La clave se guarda solo en tu navegador, nunca en el sitio público.</p>
         <div class="modal-actions">
           <button type="button" class="btn btn-primary" data-close-help>Entendido</button>
         </div>
@@ -112,25 +111,25 @@
     </div>
   </div>
 
-  <div class="modal" id="modalCopy" hidden>
-    <div class="modal-backdrop" data-close-copy></div>
-    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="copyTitle">
+  <div class="modal" id="modalConnect" hidden>
+    <div class="modal-backdrop" data-close-connect></div>
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="connectTitle">
       <div class="modal-head">
-        <h2 id="copyTitle">Copia este mensaje</h2>
-        <button type="button" class="btn btn-ghost btn-icon" data-close-copy aria-label="Cerrar">✕</button>
+        <h2 id="connectTitle">Conecta ZepFilms</h2>
+        <button type="button" class="btn btn-ghost btn-icon" data-close-connect aria-label="Cerrar">✕</button>
       </div>
       <div class="modal-body">
-        <p class="sub">El portapapeles no respondió. Selecciona el texto y cópialo (Ctrl/Cmd+C), luego pégalo en el chat con ZepFilms.</p>
-        <textarea id="copyFallbackText" rows="8" readonly></textarea>
+        <p class="sub">Para que al aprobar el flujo continúe solo, pega la URL del webhook y la clave desde el panel de rutinas de ZepFilms (Settings → Conexión).</p>
         <div class="modal-actions">
-          <button type="button" class="btn btn-primary" id="btnSelectCopy">Seleccionar todo</button>
-          <button type="button" class="btn" data-close-copy>Cerrar</button>
+          <button type="button" class="btn" data-close-connect>Ahora no</button>
+          <a class="btn btn-primary" href="#/settings" id="btnGoSettings" data-close-connect>Ir a Settings</a>
         </div>
       </div>
     </div>
   </div>
 
   <div class="toast" id="toast" role="status"></div>
-  <script src="js/dashboard.js?v=5"></script>
+  <script src="js/notify.js?v=1"></script>
+  <script src="js/dashboard.js?v=6"></script>
 </body>
 </html>

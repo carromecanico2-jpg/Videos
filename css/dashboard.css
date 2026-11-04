@@ -682,3 +682,101 @@ button.btn:disabled {
 .modal-body .sub { color: var(--muted); font-size: 0.86rem; }
 .modal-body ol { color: var(--muted); font-size: 0.9rem; padding-left: 1.2rem; }
 .modal-body ol li { margin: 6px 0; }
+
+/* Connection card (Settings) */
+.conn-card {
+  margin-bottom: 16px;
+}
+.conn-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-radius: var(--pill);
+  border: 1px solid var(--border);
+  background: var(--chrome);
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--muted);
+  margin: 8px 0 12px;
+}
+.conn-status .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--pending);
+  flex-shrink: 0;
+}
+.conn-status.is-connected {
+  background: var(--ok-soft);
+  color: var(--ok);
+  border-color: #cfe8da;
+}
+.conn-status.is-connected .dot { background: var(--ok); }
+.conn-status.is-error {
+  background: #fff5f5;
+  color: #9b1c1c;
+  border-color: #f0c9c9;
+}
+.conn-status.is-error .dot { background: #c0392b; }
+.conn-status.is-disconnected .dot { background: var(--pending); }
+.conn-fields {
+  display: grid;
+  gap: 12px;
+}
+.conn-fields label {
+  display: grid;
+  gap: 6px;
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: var(--muted);
+}
+.conn-fields input {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: var(--chrome);
+  color: var(--text);
+  font-size: 0.92rem;
+}
+.conn-fields input:focus {
+  outline: none;
+  border-color: var(--text);
+  box-shadow: 0 0 0 3px rgba(5,5,5,0.06);
+}
+.conn-fields .hint {
+  font-size: 0.75rem;
+  color: var(--muted-2);
+  font-weight: 400;
+}
+.conn-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+.conn-msg {
+  margin-top: 10px;
+  font-size: 0.8rem;
+  color: var(--muted);
+  line-height: 1.4;
+}
+.conn-msg strong { color: var(--text); }
+.status-en_proceso,
+.status-en_progreso {
+  background: var(--surface-soft);
+  color: #4b5563;
+  border-color: var(--border);
+}
+.toast-action {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: #fff;
+  font: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  cursor: pointer;
+  padding: 0 4px;
+}

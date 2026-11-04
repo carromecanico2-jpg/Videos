@@ -3,11 +3,15 @@ const DRAFTS_KEY = 'zepfilms-edit-panel-drafts-v1';
 const STATUS_LABEL = {
   pendiente: 'Pendiente',
   en_progreso: 'En progreso',
+  en_proceso: 'En proceso',
   esperando_aprobacion: 'Esperando tu aprobación',
   aprobado: 'Aprobado',
   cambios_pedidos: 'Cambios pedidos',
   borrador: 'Borrador',
 };
+
+const STEP_ORDER = ['upload', 'cuts', 'clean_audio', 'edit', 'packaging', 'publish'];
+const POLL_MS = 60000;
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
@@ -16,8 +20,9 @@ let DATA = { projects: [], drive: null };
 let STYLE = null;
 let CURRENT = { view: 'home', slug: null };
 let LAST_UNDO = null;
+let POLL_TIMER = null;
 
-function toast(msg, { undo } = {}) {
+function toast(msg, { undo, action } = {}) {
   const el = $('#toast');
   el.innerHTML = '';
   const span = document.createElement('span');
@@ -34,9 +39,20 @@ function toast(msg, { undo } = {}) {
     });
     el.appendChild(btn);
   }
+  if (action) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'toast-action';
+    btn.textContent = action.label;
+    btn.addEventListener('click', () => {
+      action.onClick();
+      el.classList.remove('show');
+    });
+    el.appendChild(btn);
+  }
   el.classList.add('show');
   clearTimeout(toast._t);
-  toast._t = setTimeout(() => el.classList.remove('show'), undo ? 6000 : 2600);
+  toast._t = setTimeout(() => el.classList.remove('show'), undo || action ? 7000 : 3200);
 }
 
 function escapeHtml(s) {
@@ -65,54 +81,12 @@ function saveApprovals(data) { saveJSON(APPROVALS_KEY, data); }
 function loadDrafts() { return loadJSON(DRAFTS_KEY, []); }
 function saveDrafts(list) { saveJSON(DRAFTS_KEY, list); }
 
-async function copyText(text) {
-  // 1) Clipboard API
-  try {
-    if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(text);
-      return { ok: true, method: 'clipboard' };
-    }
-  } catch (_) { /* fall through */ }
-
-  // 2) execCommand fallback
-  try {
-    const ta = document.createElement('textarea');
-    ta.value = text;
-    ta.setAttribute('readonly', '');
-    ta.style.position = 'fixed';
-    ta.style.left = '-9999px';
-    ta.style.top = '0';
-    document.body.appendChild(ta);
-    ta.focus();
-    ta.select();
-    ta.setSelectionRange(0, ta.value.length);
-    const ok = document.execCommand('copy');
-    ta.remove();
-    if (ok) return { ok: true, method: 'execCommand' };
-  } catch (_) { /* fall through */ }
-
-  // 3) Modal with selected text
-  showCopyModal(text);
-  return { ok: false, method: 'modal' };
-}
-
-function showCopyModal(text) {
-  const modal = $('#modalCopy');
-  const ta = $('#copyFallbackText');
-  ta.value = text;
-  modal.hidden = false;
-  setTimeout(() => {
-    ta.focus();
-    ta.select();
-  }, 30);
-}
-
 function statusClass(status) {
   return `status-${status || 'pendiente'}`;
 }
 function statusDot(status) {
   if (status === 'aprobado') return 'ok';
-  if (status === 'esperando_aprobacion' || status === 'en_progreso' || status === 'cambios_pedidos') return 'warn';
+  if (status === 'esperando_aprobacion' || status === 'en_progreso' || status === 'en_proceso' || status === 'cambios_pedidos') return 'warn';
   if (status === 'borrador') return 'draft';
   return '';
 }
@@ -121,12 +95,44 @@ function approvalKey(projectId, stepId) {
   return `${projectId}:${stepId}`;
 }
 
-/** Effective step status: JSON aprobado wins; else local override; else JSON. */
+function stepRank(status) {
+  const order = {
+    pendiente: 0,
+    borrador: 0,
+    en_progreso: 1,
+    en_proceso: 1,
+    esperando_aprobacion: 2,
+    cambios_pedidos: 2,
+    aprobado: 3,
+  };
+  return order[status] ?? 0;
+}
+
+/**
+ * Prefer projects.json when it shows a later/equal remote status.
+ * Local overrides apply only while remote has not caught up.
+ */
 function effectiveStepStatus(project, step) {
-  if (step.status === 'aprobado') return 'aprobado';
-  const local = loadApprovals()[approvalKey(project.id, step.id)];
-  if (local?.status === 'aprobado' || local?.status === 'cambios_pedidos') return local.status;
-  return step.status || 'pendiente';
+  const remote = step.status || 'pendiente';
+  const localApproval = loadApprovals()[approvalKey(project.id, step.id)];
+  const localStep = window.ZepNotify?.getLocalStepStatus?.(project.id, step.id);
+
+  let local = null;
+  if (localApproval?.status === 'aprobado' || localApproval?.status === 'cambios_pedidos') {
+    local = localApproval.status;
+  } else if (localStep?.status) {
+    local = localStep.status;
+  }
+
+  if (!local) return remote;
+  if (stepRank(remote) >= stepRank(local) && remote !== 'pendiente') {
+    // Remote caught up or surpassed — drop stale local override for this step
+    if (stepRank(remote) > stepRank(local) || remote === local) {
+      return remote;
+    }
+  }
+  if (remote === 'aprobado') return 'aprobado';
+  return local;
 }
 
 function progressOf(project) {
@@ -146,9 +152,17 @@ function stepHasRequiredMedia(project, step) {
 }
 function canApproveStep(project, step) {
   if (!step.approvable) return false;
+  if (effectiveStepStatus(project, step) === 'aprobado' && step.status === 'aprobado') return false;
   if (step.status === 'aprobado') return false;
   if (stepNeedsMedia(step) && !stepHasRequiredMedia(project, step)) return false;
   return true;
+}
+
+function nextStepAfter(project, stepId) {
+  const pipeline = project.pipeline || [];
+  const idx = pipeline.findIndex((s) => s.id === stepId);
+  if (idx < 0 || idx >= pipeline.length - 1) return null;
+  return pipeline[idx + 1];
 }
 
 function allProjects() {
@@ -186,70 +200,145 @@ function mediaBlock(label, path, kind) {
   return `<div class="media-slot"><span class="pending-label">${escapeHtml(label)}</span><video controls preload="metadata" src="${escapeHtml(path)}"></video></div>`;
 }
 
-function buildApprovalMessage(project, step, kind, notes) {
-  const when = new Date().toLocaleString('es-PE', { timeZone: 'America/Lima' });
-  const lines = [
-    `Panel de edición — ${project.title}`,
-    `Paso: ${step.title}`,
-    `Acción: ${kind === 'approve' ? 'APROBAR' : 'PEDIR CAMBIOS'}`,
-    `Fecha (America/Lima): ${when}`,
-  ];
-  if (kind === 'changes') lines.push(`Cambios pedidos: ${notes.trim() || '(sin detalle)'}`);
-  else lines.push('Listo para continuar con el siguiente paso.');
-  if (step.id === 'cuts' && project.review?.counts) {
-    const c = project.review.counts;
-    lines.push(`Propuestas: ${c.total} (silencios ${c.silence}, retomas ${c.retake})`);
+function showConnectPrompt() {
+  const modal = $('#modalConnect');
+  if (modal) modal.hidden = false;
+  else {
+    toast('Conecta ZepFilms en Settings', {
+      action: {
+        label: 'Ir a Settings',
+        onClick: () => { location.hash = '#/settings'; },
+      },
+    });
   }
-  if (project.drive?.folderUrl) lines.push(`Drive del proyecto: ${project.drive.folderUrl}`);
-  return lines.join('\n');
+}
+function closeConnect() {
+  const modal = $('#modalConnect');
+  if (modal) modal.hidden = true;
+}
+
+function mapAction(kind) {
+  if (kind === 'approve') return 'aprobar';
+  if (kind === 'changes') return 'pedir_cambios';
+  if (kind === 'undo') return 'deshacer';
+  return kind;
 }
 
 async function applyStepDecision(project, step, kind, notes = '') {
   const key = approvalKey(project.id, step.id);
   const approvals = loadApprovals();
   const prev = approvals[key] ? { ...approvals[key] } : null;
+  const prevLocalNext = (() => {
+    const n = nextStepAfter(project, step.id);
+    return n ? window.ZepNotify?.getLocalStepStatus?.(project.id, n.id) : null;
+  })();
+
   const status = kind === 'approve' ? 'aprobado' : 'cambios_pedidos';
-  const msg = buildApprovalMessage(project, step, kind, notes);
   approvals[key] = {
     status,
     action: kind,
     notes: notes.trim(),
-    message: msg,
     at: new Date().toLocaleString('es-PE', { timeZone: 'America/Lima' }),
   };
   saveApprovals(approvals);
 
+  // Persist local badge overrides: this step approved, next in progress
+  window.ZepNotify?.setLocalStepStatus?.(project.id, step.id, status);
+  let next = null;
+  if (kind === 'approve') {
+    next = nextStepAfter(project, step.id);
+    if (next && (next.status === 'pendiente' || !next.status)) {
+      window.ZepNotify?.setLocalStepStatus?.(project.id, next.id, 'en_proceso');
+    }
+  }
+
   LAST_UNDO = {
     key,
     prev,
+    prevLocalNext,
+    nextStepId: next?.id || null,
     projectSlug: project.slug,
+    projectId: project.id,
+    stepId: step.id,
+    kind,
   };
 
-  const copy = await copyText(msg);
-  const toastMsg = kind === 'approve'
-    ? (copy.ok
-      ? 'Paso aprobado ✓ — ya le avisé a ZepFilms: copia y pega en el chat'
-      : 'Paso aprobado ✓ — copia el mensaje del cuadro')
-    : (copy.ok
-      ? 'Cambios pedidos ✓ — pega el mensaje en el chat con ZepFilms'
-      : 'Cambios pedidos ✓ — copia el mensaje del cuadro');
-
-  toast(toastMsg, {
-    undo: () => {
-      const a = loadApprovals();
-      if (LAST_UNDO?.prev) a[LAST_UNDO.key] = LAST_UNDO.prev;
-      else delete a[LAST_UNDO.key];
-      saveApprovals(a);
-      toast('Deshecho');
-      if (CURRENT.view === 'project' && CURRENT.slug === project.slug) {
-        renderProject(findProject(project.slug));
-      }
-      renderNav();
-    },
+  const action = mapAction(kind);
+  const notifyResult = await window.ZepNotify.notify({
+    projectSlug: project.slug,
+    stepId: step.id,
+    action,
+    note: notes.trim(),
   });
 
-  // Re-render project view so pills/progress update immediately
+  const connected = window.ZepNotify.isConfigured();
+
+  if (notifyResult.ok) {
+    const msg = kind === 'approve'
+      ? 'Aprobado ✓. ZepFilms ya está trabajando en el siguiente paso.'
+      : 'Cambios pedidos ✓. ZepFilms ya fue notificado.';
+    toast(msg, {
+      undo: () => undoLastDecision(),
+    });
+  } else if (!connected || notifyResult.needSettings) {
+    toast('Guardado. Conecta ZepFilms para que el flujo continúe solo.', {
+      undo: () => undoLastDecision(),
+      action: {
+        label: 'Conectar',
+        onClick: () => { location.hash = '#/settings'; },
+      },
+    });
+    showConnectPrompt();
+  } else if (notifyResult.corsBlocked) {
+    toast('Guardado en cola. Hay un bloqueo CORS hacia Cursor — revisa Settings.', {
+      undo: () => undoLastDecision(),
+      action: {
+        label: 'Settings',
+        onClick: () => { location.hash = '#/settings'; },
+      },
+    });
+  } else {
+    toast(kind === 'approve'
+      ? 'Aprobado ✓. Aviso en cola — se reenviará al conectar.'
+      : 'Cambios pedidos ✓. Aviso en cola.', {
+      undo: () => undoLastDecision(),
+    });
+  }
+
   render();
+}
+
+async function undoLastDecision() {
+  if (!LAST_UNDO) return;
+  const { key, prev, projectId, projectSlug, stepId, nextStepId, prevLocalNext } = LAST_UNDO;
+  const a = loadApprovals();
+  if (prev) a[key] = prev;
+  else delete a[key];
+  saveApprovals(a);
+
+  if (prev) {
+    window.ZepNotify?.setLocalStepStatus?.(projectId, stepId, prev.status);
+  } else {
+    window.ZepNotify?.clearLocalStepStatus?.(projectId, stepId);
+  }
+  if (nextStepId) {
+    if (prevLocalNext) window.ZepNotify?.setLocalStepStatus?.(projectId, nextStepId, prevLocalNext.status);
+    else window.ZepNotify?.clearLocalStepStatus?.(projectId, nextStepId);
+  }
+
+  await window.ZepNotify.notify({
+    projectSlug,
+    stepId,
+    action: 'deshacer',
+    note: 'El usuario deshizo la última decisión en el panel',
+  });
+
+  LAST_UNDO = null;
+  toast('Deshecho');
+  if (CURRENT.view === 'project' && CURRENT.slug === projectSlug) {
+    renderProject(findProject(projectSlug));
+  }
+  renderNav();
 }
 
 function renderStep(project, step, index) {
@@ -257,8 +346,8 @@ function renderStep(project, step, index) {
   const label = STATUS_LABEL[status] || STATUS_LABEL.pendiente;
   const key = approvalKey(project.id, step.id);
   const saved = loadApprovals()[key];
-  const approvable = canApproveStep(project, step);
   const blockedMedia = step.approvable && stepNeedsMedia(step) && !stepHasRequiredMedia(project, step);
+  const showActions = step.approvable && project.source !== 'draft' && step.status !== 'aprobado' && status !== 'aprobado';
 
   let meta = '';
   if (step.id === 'cuts' && project.review) {
@@ -298,7 +387,7 @@ function renderStep(project, step, index) {
   }
 
   const savedBits = [];
-  if (saved?.action && step.status !== 'aprobado') {
+  if (saved?.action && step.status !== 'aprobado' && status !== step.status) {
     savedBits.push(`<div class="step-saved">Guardado local: <strong>${escapeHtml(STATUS_LABEL[saved.status] || saved.action)}</strong></div>`);
   }
 
@@ -306,7 +395,7 @@ function renderStep(project, step, index) {
   if (step.id === 'cuts' && step.link) {
     footParts.push(`<a class="btn btn-primary btn-sm" href="${escapeHtml(step.link)}">Abrir revisión</a>`);
   }
-  if (step.approvable && project.source !== 'draft' && step.status !== 'aprobado') {
+  if (showActions) {
     const disabled = blockedMedia ? 'disabled' : '';
     const title = blockedMedia ? 'title="Disponible cuando haya archivo"' : '';
     footParts.push(`
@@ -372,7 +461,7 @@ function bindApprovals(project) {
         try {
           await applyStepDecision(project, step, 'approve');
         } finally {
-          // render() rebuilds DOM
+          /* render rebuilds */
         }
         return;
       }
@@ -396,7 +485,7 @@ function renderNav() {
   root.innerHTML = list.length
     ? list.map((p) => {
       const active = CURRENT.view === 'project' && CURRENT.slug === p.slug ? 'active' : '';
-      const sub = p.source === 'draft' ? 'Borrador — envíalo a ZepFilms' : (p.subtitle || '');
+      const sub = p.source === 'draft' ? 'Borrador local' : (p.subtitle || '');
       return `<a class="nav-item ${active}" href="#/p/${escapeHtml(p.slug)}">
         <span class="dot ${statusDot(p.status)}"></span>
         <span class="nav-text">${escapeHtml(p.title)}
@@ -418,10 +507,10 @@ function renderNav() {
       navDrive.removeAttribute('aria-disabled');
     } else {
       navDrive.href = '#';
-      navDrive.addEventListener('click', (e) => {
+      navDrive.onclick = (e) => {
         e.preventDefault();
         toast('Carpeta Drive aún no configurada');
-      }, { once: true });
+      };
     }
   }
 }
@@ -451,18 +540,18 @@ function renderHome() {
   $('#app').innerHTML = `
     <header class="hero">
       <h1>Tus proyectos</h1>
-      <p>Elige un proyecto en el menú o crea uno nuevo. Los borradores viven en tu navegador hasta que los envíes a ZepFilms.</p>
+      <p>Elige un proyecto en el menú o crea uno nuevo. Al aprobar, ZepFilms recibe el aviso y continúa el siguiente paso.</p>
     </header>
     <div class="section-title"><h2>Proyectos</h2><span>${list.length}</span></div>
     <div class="grid grid-projects">${cards || '<div class="card empty">No hay proyectos. Pulsa “+ Nuevo proyecto”.</div>'}</div>
-    <p class="footer-note">Sitio estático · Aprobaciones y borradores en localStorage</p>`;
+    <p class="footer-note">Sitio estático · Aprobaciones en localStorage · Webhook en tu navegador</p>`;
 }
 
 function renderDraftActions(project) {
   return `
     <div class="card" style="margin-bottom:16px">
       <h3>Borrador local</h3>
-      <p class="sub">Este proyecto aún no está en <code>projects.json</code>. Envíalo a ZepFilms para que lo carguemos al panel oficial.</p>
+      <p class="sub">Este proyecto aún no está en <code>projects.json</code>. Envíalo a ZepFilms para cargarlo al panel oficial.</p>
       <div class="card-actions">
         <button type="button" class="btn btn-primary" id="btnSendDraft">Enviar a ZepFilms</button>
         <button type="button" class="btn btn-danger-outline" id="btnDeleteDraft">Eliminar borrador</button>
@@ -524,6 +613,24 @@ function renderProject(project) {
   bindApprovals(project);
 }
 
+function connStatusView() {
+  const st = window.ZepNotify?.getStatus?.() || { state: 'disconnected', message: '' };
+  const settings = window.ZepNotify?.getSettings?.() || {};
+  const configured = !!(settings.url && settings.key);
+  let state = st.state || 'disconnected';
+  if (!configured) state = 'disconnected';
+  const label =
+    state === 'connected' ? 'Conectado' :
+    state === 'error' ? 'Error' : 'Sin conectar';
+  const cls =
+    state === 'connected' ? 'is-connected' :
+    state === 'error' ? 'is-error' : 'is-disconnected';
+  const outbox = window.ZepNotify?.getOutbox?.() || [];
+  const extra = outbox.length ? ` · ${outbox.length} en cola` : '';
+  const msg = st.message ? escapeHtml(st.message) : (configured ? 'Listo para enviar eventos' : 'Pega la URL y la clave del panel de rutinas de ZepFilms');
+  return { label, cls, msg, extra, settings, state, outboxCount: outbox.length };
+}
+
 function renderSettings() {
   $('#topbarTitle').textContent = 'Settings';
   const howto = (STYLE?.sections || []).find((s) => s.id === 'howto');
@@ -534,17 +641,54 @@ function renderSettings() {
       <ul>${(sec.items || []).map((it) => `<li>${escapeHtml(it)}</li>`).join('')}</ul>
     </div>`).join('');
 
+  const cv = connStatusView();
+
   $('#app').innerHTML = `
     <header class="hero">
       <h1>Settings</h1>
-      <p>Cómo empezar un video y la guía de estilo de edición.</p>
+      <p>Conexión con ZepFilms, cómo empezar un video y la guía de estilo.</p>
     </header>
+
+    <section class="card conn-card" id="connCard">
+      <h3>Conexión con ZepFilms</h3>
+      <p class="sub">La URL y la clave viven solo en tu navegador (localStorage). Nunca se suben al repositorio.</p>
+      <div class="conn-status ${cv.cls}" id="connStatusPill">
+        <span class="dot" aria-hidden="true"></span>
+        <span id="connStatusLabel">${escapeHtml(cv.label)}${escapeHtml(cv.extra)}</span>
+      </div>
+      <div class="conn-fields">
+        <label>URL del webhook
+          <input id="connUrl" type="url" autocomplete="off" spellcheck="false"
+            placeholder="https://api2.cursor.sh/automations/webhook/…"
+            value="${escapeHtml(cv.settings.url || '')}" />
+        </label>
+        <label>Clave
+          <input id="connKey" type="password" autocomplete="off" spellcheck="false"
+            placeholder="Pega la clave (Bearer se añade solo)"
+            value="${escapeHtml(cv.settings.key || '')}" />
+          <span class="hint">Se envía como <code>Authorization: Bearer …</code> (y también como <code>X-Automation-Key</code>).</span>
+        </label>
+        <label>Proxy CORS (opcional)
+          <input id="connProxy" type="url" autocomplete="off" spellcheck="false"
+            placeholder="https://tu-proxy.ejemplo/forward"
+            value="${escapeHtml(cv.settings.proxyUrl || '')}" />
+          <span class="hint">Solo si el navegador bloquea CORS hacia Cursor. El proxy debe reenviar el encabezado Authorization.</span>
+        </label>
+      </div>
+      <div class="conn-actions">
+        <button type="button" class="btn btn-primary" id="btnSaveConn">Guardar</button>
+        <button type="button" class="btn" id="btnTestConn">Probar conexión</button>
+        <button type="button" class="btn btn-ghost" id="btnClearConn">Borrar</button>
+      </div>
+      <p class="conn-msg" id="connMsg">${cv.msg}</p>
+    </section>
+
     <section class="card" style="margin-bottom:16px">
       <h3>Nuevo video — cómo empezar</h3>
-      <p class="sub">Sin formularios raros: lo mandas por el chat.</p>
+      <p class="sub">Manda el audio por el chat o crea un borrador aquí.</p>
       <div class="howto-box">
         En el chat, manda el <strong>audio</strong> (enlace de Drive). El <strong>guion</strong> es opcional y ayuda a detectar retomas.
-        También puedes usar <strong>+ Nuevo proyecto</strong> para armar un borrador y copiarlo.
+        También puedes usar <strong>+ Nuevo proyecto</strong> para armar un borrador.
       </div>
       <ol style="margin:0;padding-left:1.2rem;color:var(--muted);font-size:0.9rem">
         ${(howto?.items || []).map((it) => `<li style="margin:6px 0">${escapeHtml(it)}</li>`).join('')}
@@ -555,22 +699,104 @@ function renderSettings() {
       <p class="sub">${escapeHtml(STYLE?.subtitle || '')}</p>
       <div class="style-list" style="margin-top:12px">${styleBlocks || '<p class="sub">No se pudo cargar data/style.json</p>'}</div>
     </section>`;
+
+  $('#btnSaveConn')?.addEventListener('click', async () => {
+    const url = $('#connUrl')?.value || '';
+    const key = $('#connKey')?.value || '';
+    const proxyUrl = $('#connProxy')?.value || '';
+    window.ZepNotify.saveSettings({ url, key, proxyUrl });
+    if (url && key) {
+      window.ZepNotify.setStatus('disconnected', 'Guardado — pulsa Probar conexión');
+      toast('Conexión guardada en este navegador');
+      const added = await window.ZepNotify.enqueuePriorApprovals(DATA.projects || []);
+      const flushed = await window.ZepNotify.flushOutbox();
+      if (added || flushed.sent) {
+        toast(`Cola: ${added} previos · reenviados ${flushed.sent}`);
+      }
+    } else {
+      window.ZepNotify.setStatus('disconnected', 'Sin conectar');
+      toast('Guardado (incompleto)');
+    }
+    refreshConnPill();
+  });
+
+  $('#btnTestConn')?.addEventListener('click', async () => {
+    // Save fields first
+    window.ZepNotify.saveSettings({
+      url: $('#connUrl')?.value || '',
+      key: $('#connKey')?.value || '',
+      proxyUrl: $('#connProxy')?.value || '',
+    });
+    const btn = $('#btnTestConn');
+    if (btn) btn.disabled = true;
+    try {
+      await window.ZepNotify.enqueuePriorApprovals(DATA.projects || []);
+      const res = await window.ZepNotify.testConnection();
+      if (res.ok) toast('Conectado ✓. ZepFilms recibió la prueba.');
+      else if (res.corsBlocked) toast('Error CORS — mira el mensaje en la tarjeta');
+      else toast(res.message || 'No se pudo conectar');
+    } finally {
+      if (btn) btn.disabled = false;
+      refreshConnPill();
+    }
+  });
+
+  $('#btnClearConn')?.addEventListener('click', () => {
+    window.ZepNotify.saveSettings({ url: '', key: '', proxyUrl: '' });
+    window.ZepNotify.setStatus('disconnected', 'Sin conectar');
+    if ($('#connUrl')) $('#connUrl').value = '';
+    if ($('#connKey')) $('#connKey').value = '';
+    if ($('#connProxy')) $('#connProxy').value = '';
+    toast('Conexión borrada de este navegador');
+    refreshConnPill();
+  });
+}
+
+function refreshConnPill() {
+  const pill = $('#connStatusPill');
+  const label = $('#connStatusLabel');
+  const msg = $('#connMsg');
+  if (!pill) return;
+  const cv = connStatusView();
+  pill.className = `conn-status ${cv.cls}`;
+  if (label) label.textContent = `${cv.label}${cv.extra}`;
+  if (msg) msg.textContent = cv.msg.replace(/&[^;]+;/g, '');
 }
 
 async function sendDraft(project) {
-  const when = new Date().toLocaleString('es-PE', { timeZone: 'America/Lima' });
-  const msg = [
-    'Nuevo proyecto (borrador del Panel de edición)',
+  const note = [
     `Nombre: ${project.title}`,
     `Tema/serie: ${project.theme || '(sin tema)'}`,
     `Canal: ${project.channel || '(sin canal)'}`,
     `Audio (Drive): ${project.audioUrl || '(pendiente)'}`,
-    `Guion: ${project.script ? project.script : '(pendiente — opcional)'}`,
+    `Guion: ${project.script ? 'incluido' : '(pendiente — opcional)'}`,
     `Título YT: ${project.ytTitle || '(pendiente)'}`,
-    `Fecha (America/Lima): ${when}`,
   ].join('\n');
-  const copy = await copyText(msg);
-  toast(copy.ok ? 'Copiado — pégalo en el chat con ZepFilms' : 'Copia el mensaje del cuadro');
+
+  if (!window.ZepNotify.isConfigured()) {
+    showConnectPrompt();
+    toast('Conecta ZepFilms para enviar el borrador', {
+      action: { label: 'Settings', onClick: () => { location.hash = '#/settings'; } },
+    });
+    return;
+  }
+  const res = await window.ZepNotify.notify({
+    projectSlug: project.slug,
+    stepId: 'upload',
+    action: 'aprobar',
+    note,
+    extra: {
+      draft: true,
+      title: project.title,
+      theme: project.theme,
+      channel: project.channel,
+      audioUrl: project.audioUrl,
+      script: project.script,
+      ytTitle: project.ytTitle,
+    },
+  });
+  if (res.ok) toast('Borrador enviado a ZepFilms ✓');
+  else toast(res.message || 'Aviso en cola');
 }
 
 function deleteDraft(slug) {
@@ -597,7 +823,6 @@ function openModal() {
 function closeModal() { $('#modalNew').hidden = true; }
 function openHelp() { $('#modalHelp').hidden = false; }
 function closeHelp() { $('#modalHelp').hidden = true; }
-function closeCopy() { $('#modalCopy').hidden = true; }
 
 function createDraft(form) {
   const fd = new FormData(form);
@@ -647,16 +872,43 @@ function render() {
   renderHome();
 }
 
+async function fetchProjects({ bust = false } = {}) {
+  const q = bust ? `?t=${Date.now()}` : `?v=6`;
+  const [projRes, styleRes] = await Promise.all([
+    fetch(`data/projects.json${q}`, { cache: 'no-store' }),
+    fetch(`data/style.json?v=1`, { cache: bust ? 'no-store' : 'default' }),
+  ]);
+  if (projRes.ok) DATA = await projRes.json();
+  if (styleRes.ok) STYLE = await styleRes.json();
+}
+
+function startPolling() {
+  clearInterval(POLL_TIMER);
+  POLL_TIMER = setInterval(async () => {
+    try {
+      const prev = JSON.stringify(DATA.projects || []);
+      await fetchProjects({ bust: true });
+      const next = JSON.stringify(DATA.projects || []);
+      if (prev !== next) render();
+    } catch (e) {
+      console.warn('poll projects.json failed', e);
+    }
+  }, POLL_MS);
+}
+
 async function boot() {
   try {
-    const [projRes, styleRes] = await Promise.all([
-      fetch('data/projects.json?v=5'),
-      fetch('data/style.json?v=1'),
-    ]);
-    if (projRes.ok) DATA = await projRes.json();
-    if (styleRes.ok) STYLE = await styleRes.json();
+    await fetchProjects({ bust: true });
   } catch (e) {
     console.error(e);
+  }
+
+  // Seed outbox with prior local approvals (e.g. cuts already aprobado), then flush if connected
+  try {
+    await window.ZepNotify.enqueuePriorApprovals(DATA.projects || []);
+    await window.ZepNotify.bootNotify();
+  } catch (e) {
+    console.warn(e);
   }
 
   $('#btnNewProject').addEventListener('click', openModal);
@@ -665,19 +917,19 @@ async function boot() {
   $$('[data-close-modal]').forEach((el) => el.addEventListener('click', closeModal));
   $('#btnHelp')?.addEventListener('click', openHelp);
   $$('[data-close-help]').forEach((el) => el.addEventListener('click', closeHelp));
-  $$('[data-close-copy]').forEach((el) => el.addEventListener('click', closeCopy));
-  $('#btnSelectCopy')?.addEventListener('click', () => {
-    const ta = $('#copyFallbackText');
-    ta.focus();
-    ta.select();
-  });
+  $$('[data-close-connect]').forEach((el) => el.addEventListener('click', closeConnect));
+  $('#btnGoSettings')?.addEventListener('click', () => { closeConnect(); });
   $('#formNew').addEventListener('submit', (ev) => {
     ev.preventDefault();
     createDraft(ev.target);
   });
   window.addEventListener('hashchange', render);
+  window.addEventListener('zepfilms-webhook-status', () => {
+    if (CURRENT.view === 'settings') refreshConnPill();
+  });
   if (!location.hash) location.hash = '#/';
   render();
+  startPolling();
 }
 
 boot();
