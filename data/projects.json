@@ -1,5 +1,5 @@
 {
-  "updatedAt": "2026-11-03T21:30:00-05:00",
+  "updatedAt": "2026-11-03T22:05:00-05:00",
   "style": {
     "title": "Estilo de edición (ZEPFILMS → canal nuevo)",
     "cutsPerMin": "20–23 cortes/min",
@@ -31,8 +31,9 @@
         }
       },
       "media": {
-        "cleanedAudio": null,
-        "videoPreview": null
+        "cleanedAudio": "media/mary-cooper/audio_limpio.mp3",
+        "videoPreview": null,
+        "cleanedAudioDrive": "https://drive.google.com/file/d/1sCJ8TOnYqA_O58_KFjT-6OctLdU7Eufl/view?usp=drivesdk"
       },
       "packaging": {
         "thumbnail": null,
@@ -56,17 +57,18 @@
         {
           "id": "cuts",
           "title": "Revisión de cortes",
-          "status": "esperando_aprobacion",
+          "status": "aprobado",
           "approvable": true,
           "link": "revision/mary-cooper/",
-          "detail": "Revisa retomas y silencios. Cuando termines, aprueba o pide cambios."
+          "detail": "Cortes aprobados (82 propuestas aplicadas, tomas recomendadas)."
         },
         {
           "id": "clean_audio",
           "title": "Audio limpio — aprobar",
-          "status": "pendiente",
+          "status": "esperando_aprobacion",
           "approvable": true,
-          "detail": "Se genera tras tu aprobación de cortes. Escucha el audio limpio aquí cuando esté listo."
+          "detail": "Audio limpio listo (~6:23). Escúchalo aquí o en Drive y apruébalo o pide cambios.",
+          "link": "https://drive.google.com/file/d/1sCJ8TOnYqA_O58_KFjT-6OctLdU7Eufl/view?usp=drivesdk"
         },
         {
           "id": "edit",
