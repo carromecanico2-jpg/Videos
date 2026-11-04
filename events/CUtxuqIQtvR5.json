@@ -1,0 +1,18 @@
+{
+  "source": "zepfilms-edit-panel",
+  "project": "mary-cooper",
+  "project_slug": "mary-cooper",
+  "step": "edit",
+  "step_id": "edit",
+  "action": "pedir_cambios",
+  "note": "no me gusta, solo pones el mismo sonido y la edicion esta monse",
+  "timestamp": "2026-11-04T14:36:21.298Z",
+  "timestamp_lima": "4/11/2026, 9:36:21 a. m.",
+  "_ntfy": {
+    "id": "CUtxuqIQtvR5",
+    "time": 1793802982,
+    "topic": "zepfilms-panel-5947e6bd6cb6e863",
+    "event": "message",
+    "source": "stream"
+  }
+}
