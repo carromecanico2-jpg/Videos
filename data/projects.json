@@ -1,5 +1,5 @@
 {
-  "updatedAt": "2026-11-04T09:49:35-05:00",
+  "updatedAt": "2026-11-04T09:50:12-05:00",
   "style": {
     "title": "Estilo de edición (ZEPFILMS → canal nuevo)",
     "cutsPerMin": "20–23 cortes/min",
@@ -34,7 +34,7 @@
         "cleanedAudio": "media/mary-cooper/audio_limpio.mp3",
         "videoPreview": "media/mary-cooper/video_preview_first30.mp4",
         "cleanedAudioDrive": "https://drive.google.com/file/d/1sCJ8TOnYqA_O58_KFjT-6OctLdU7Eufl/view?usp=drivesdk",
-        "videoDrive": "https://drive.google.com/file/d/1n44l0W75Leg3xsC65svj0jb4-whCJ8h6/view?usp=drivesdk",
+        "videoDrive": "https://drive.google.com/file/d/1IE4PGSI0cV06JVkTKgdXqY_-LHTZkX6M/view?usp=drivesdk",
         "videoPreviewDrive": "https://drive.google.com/file/d/1r-wdNbrPEvMyLSlr4jIZ7SrCHLy_CH9Z/view?usp=drivesdk"
       },
       "packaging": {
@@ -78,7 +78,7 @@
           "status": "esperando_aprobacion",
           "approvable": true,
           "detail": "Nueva vista previa 30s v2: SFX variados (whoosh/pop/glitch/riser/impact, sin repetir seguido); cortes más rápidos con zoom punch, Ken Burns y shake; textos más grandes; Mary correcta en «mamá cristiana» (no Brenda); sin subtítulo Amen (~19s, crop); Mary/iglesia en «la realidad es otra» (no Leonard). Revisa y aprueba o pide cambios.",
-          "link": "https://drive.google.com/file/d/1n44l0W75Leg3xsC65svj0jb4-whCJ8h6/view?usp=drivesdk"
+          "link": "https://drive.google.com/file/d/1IE4PGSI0cV06JVkTKgdXqY_-LHTZkX6M/view?usp=drivesdk"
         },
         {
           "id": "packaging",
