@@ -1,5 +1,5 @@
 {
-  "updatedAt": "2026-11-05T12:00:10-05:00",
+  "updatedAt": "2026-11-05T12:00:19-05:00",
   "style": {
     "title": "Estilo de edición (ZEPFILMS → canal nuevo)",
     "cutsPerMin": "20–23 cortes/min",
@@ -34,8 +34,8 @@
         "cleanedAudio": "media/mary-cooper/audio_limpio.mp3",
         "videoPreview": "media/mary-cooper/video_preview_first10.mp4",
         "cleanedAudioDrive": "https://drive.google.com/file/d/1sCJ8TOnYqA_O58_KFjT-6OctLdU7Eufl/view?usp=drivesdk",
-        "videoDrive": "https://drive.google.com/file/d/1lFgMG3C0zKPMz8g2-uji3VjzqEg8u5eG/view?usp=drivesdk",
-        "videoPreviewDrive": "https://drive.google.com/file/d/1MFv5N5p_Zca9hsD3WREGhCc0YXc5juEC/view?usp=drivesdk"
+        "videoDrive": "https://drive.google.com/file/d/1L4y1QYVaW6AOzFFkLzlQUvkPmmuZLc7K/view?usp=drivesdk",
+        "videoPreviewDrive": "https://drive.google.com/file/d/1L4y1QYVaW6AOzFFkLzlQUvkPmmuZLc7K/view?usp=drivesdk"
       },
       "packaging": {
         "thumbnail": null,
@@ -78,7 +78,7 @@
           "status": "esperando_aprobacion",
           "approvable": true,
           "detail": "Vista previa SOLO primeros 10 s (v5) estilo Sitcom Science: apertura 2.5D (Mary cut-out / fondo despegado, micro-movimiento + zoom lento + push rápido), texto Anton amarillo/cian CON SOMBRA SUAVE SIN contorno negro, entrada calmada (fade/scale suave), SFX de texto suaves y variados bajo la VO. Duración 10 s. Revisa y aprueba o pide cambios.",
-          "link": "https://drive.google.com/file/d/1lFgMG3C0zKPMz8g2-uji3VjzqEg8u5eG/view?usp=drivesdk"
+          "link": "https://drive.google.com/file/d/1L4y1QYVaW6AOzFFkLzlQUvkPmmuZLc7K/view?usp=drivesdk"
         },
         {
           "id": "packaging",
