@@ -1,5 +1,5 @@
 {
-  "updatedAt": "2026-11-04T15:15:37-05:00",
+  "updatedAt": "2026-11-05T11:40:16-05:00",
   "style": {
     "title": "Estilo de edición (ZEPFILMS → canal nuevo)",
     "cutsPerMin": "20–23 cortes/min",
@@ -19,7 +19,7 @@
       "slug": "mary-cooper",
       "title": "Mary Cooper (The Big Bang Theory / Young Sheldon)",
       "subtitle": "Nuevo canal (no cine)",
-      "status": "esperando_aprobacion",
+      "status": "trabajando",
       "createdAt": "2026-11-03",
       "review": {
         "path": "revision/mary-cooper/",
@@ -75,9 +75,9 @@
         {
           "id": "edit",
           "title": "Edición de video",
-          "status": "esperando_aprobacion",
+          "status": "trabajando",
           "approvable": true,
-          "detail": "Vista previa 30s v3: tomas 0.0–2.9 y 24.2–27.1 reemplazadas por Zoe Perry verificada (faith_006, mary_ys_014) tras comparar cara con mary_ys_004; sin mujeres de pelo oscuro. Revisa y aprueba o pide cambios.",
+          "detail": "Trabajando en tu cambio: estilo Sitcom Science",
           "link": "https://drive.google.com/file/d/1yAvKmrHayhOQqb3Ida_1-xBzGPdkjIzG/view?usp=drivesdk"
         },
         {
