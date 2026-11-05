@@ -1,5 +1,5 @@
 {
-  "updatedAt": "2026-11-05T11:40:16-05:00",
+  "updatedAt": "2026-11-05T11:44:30-05:00",
   "style": {
     "title": "Estilo de edición (ZEPFILMS → canal nuevo)",
     "cutsPerMin": "20–23 cortes/min",
@@ -19,7 +19,7 @@
       "slug": "mary-cooper",
       "title": "Mary Cooper (The Big Bang Theory / Young Sheldon)",
       "subtitle": "Nuevo canal (no cine)",
-      "status": "trabajando",
+      "status": "esperando_aprobacion",
       "createdAt": "2026-11-03",
       "review": {
         "path": "revision/mary-cooper/",
@@ -34,8 +34,8 @@
         "cleanedAudio": "media/mary-cooper/audio_limpio.mp3",
         "videoPreview": "media/mary-cooper/video_preview_first30.mp4",
         "cleanedAudioDrive": "https://drive.google.com/file/d/1sCJ8TOnYqA_O58_KFjT-6OctLdU7Eufl/view?usp=drivesdk",
-        "videoDrive": "https://drive.google.com/file/d/1yAvKmrHayhOQqb3Ida_1-xBzGPdkjIzG/view?usp=drivesdk",
-        "videoPreviewDrive": "https://drive.google.com/file/d/1r-wdNbrPEvMyLSlr4jIZ7SrCHLy_CH9Z/view?usp=drivesdk"
+        "videoDrive": "https://drive.google.com/file/d/1lFgMG3C0zKPMz8g2-uji3VjzqEg8u5eG/view?usp=drivesdk",
+        "videoPreviewDrive": "https://drive.google.com/file/d/1MFv5N5p_Zca9hsD3WREGhCc0YXc5juEC/view?usp=drivesdk"
       },
       "packaging": {
         "thumbnail": null,
@@ -75,10 +75,10 @@
         {
           "id": "edit",
           "title": "Edición de video",
-          "status": "trabajando",
+          "status": "esperando_aprobacion",
           "approvable": true,
-          "detail": "Trabajando en tu cambio: estilo Sitcom Science",
-          "link": "https://drive.google.com/file/d/1yAvKmrHayhOQqb3Ida_1-xBzGPdkjIzG/view?usp=drivesdk"
+          "detail": "Vista previa 30s v4 estilo Sitcom Science: tomas Full HD en movimiento (solo Mary Zoe Perry / Laurie Metcalf verificadas), hard cuts ~2.5s, matte scrapbook ondulado tras el hook, tipografía Anton ALL-CAPS amarillo/cian con contorno negro (RELIGIÓN, THE BIG BANG THEORY, MARY COOPER, MAMÁ CRISTIANA, LA REALIDAD ES OTRA). Sin watermark de canal. Revisa y aprueba o pide cambios.",
+          "link": "https://drive.google.com/file/d/1lFgMG3C0zKPMz8g2-uji3VjzqEg8u5eG/view?usp=drivesdk"
         },
         {
           "id": "packaging",
