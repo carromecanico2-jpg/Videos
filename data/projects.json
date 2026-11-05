@@ -1,5 +1,5 @@
 {
-  "updatedAt": "2026-11-05T11:44:30-05:00",
+  "updatedAt": "2026-11-05T11:53:58-05:00",
   "style": {
     "title": "Estilo de edición (ZEPFILMS → canal nuevo)",
     "cutsPerMin": "20–23 cortes/min",
@@ -19,7 +19,7 @@
       "slug": "mary-cooper",
       "title": "Mary Cooper (The Big Bang Theory / Young Sheldon)",
       "subtitle": "Nuevo canal (no cine)",
-      "status": "esperando_aprobacion",
+      "status": "trabajando",
       "createdAt": "2026-11-03",
       "review": {
         "path": "revision/mary-cooper/",
@@ -75,9 +75,9 @@
         {
           "id": "edit",
           "title": "Edición de video",
-          "status": "esperando_aprobacion",
+          "status": "trabajando",
           "approvable": true,
-          "detail": "Vista previa 30s v4 estilo Sitcom Science: tomas Full HD en movimiento (solo Mary Zoe Perry / Laurie Metcalf verificadas), hard cuts ~2.5s, matte scrapbook ondulado tras el hook, tipografía Anton ALL-CAPS amarillo/cian con contorno negro (RELIGIÓN, THE BIG BANG THEORY, MARY COOPER, MAMÁ CRISTIANA, LA REALIDAD ES OTRA). Sin watermark de canal. Revisa y aprueba o pide cambios.",
+          "detail": "Trabajando en tu cambio: primeros 10 s estilo Sitcom Science",
           "link": "https://drive.google.com/file/d/1lFgMG3C0zKPMz8g2-uji3VjzqEg8u5eG/view?usp=drivesdk"
         },
         {
